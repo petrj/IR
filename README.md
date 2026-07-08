@@ -25,8 +25,8 @@ Při připojení k počítači se zařízení hlásí s následujícími identif
 ## 📋 Popis projektu
 
 Projekt se skládá ze dvou hlavních souborů:
-1. [tiqiaa_IR.py](file://tiqiaa_IR.py) – Hlavní Python třída a obslužný kód, který implementuje komunikační protokol Tiqiaa (příkazy zabalené do `ST <id> <cmd> EN` s fragmentací po 56 bajtech).
-2. [run.sh](file://run.sh) – Jednoduchý spouštěcí bash skript.
+1. [tiqiaa_IR.py](file:///home/hikaru/Source/IR/tiqiaa_IR.py) – Hlavní Python třída a obslužný kód, který implementuje komunikační protokol Tiqiaa (příkazy zabalené do `ST <id> <cmd> EN` s fragmentací po 56 bajtech).
+2. [run.sh](file:///home/hikaru/Source/IR/run.sh) – Jednoduchý spouštěcí bash skript.
 
 ### Hlavní funkce:
 * **Inicializace a verifikace:** Navázání spojení se zařízením, odpojení případného kernel driveru a vyžádání verze firmware (`V`).
@@ -64,8 +64,8 @@ Spusťte skript pomocí přiloženého shell skriptu:
 ./run.sh
 ```
 
-Ve výchozím nastavení se skript spustí v **režimu učení**. Namiřte dálkový ovladač na přijímač Tiqiaa a stiskněte tlačítko. V terminálu se zobrazí dekódované pole pulzů.
 
-Pro **vysílání** zachyceného kódu upravte spodní část souboru [tiqiaa_IR.py](file:///home/hikaru/Source/IR/tiqiaa_IR.py#L239-L261):
-1. Zakomentujte řádek `dev.learn()`.
-2. Odkomentujte řádky pro vysílání a vložte do proměnné `mojedata` vaše zachycené pole pulzů.
+## 🔗 Užitečné zdroje
+
+* [Reverzní inženýrství protokolu Tiqiaa Tview (Habr)](https://habr.com/ru/articles/494800/) – Detailní analýza a rozbor USB komunikace a protokolu tohoto IR transceiveru.
+

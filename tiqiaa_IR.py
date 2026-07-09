@@ -69,12 +69,6 @@ class TiqiaaTview:
             INTERFACE
         )
 
-        try:
-            self.dev.clear_halt(EP_OUT)
-            self.dev.clear_halt(EP_IN)
-        except Exception as e:
-            print(f"Varování při čištění endpointů: {e}")
-
         self.cmd_id = 1
         self.usb_pack_counter = 1
         self.testing = False
@@ -479,7 +473,7 @@ class TiqiaaTview:
         print("Kladné hodnoty jsou pulzy (vysílač zapnut), záporné hodnoty jsou mezery (vysílač vypnut).")
         print("Pro návrat do hlavního menu stiskněte Ctrl+C, nebo zadejte 'q' / 'exit'.")
         
-        default_sequence = [6976, -4528, 544, -592, 544, -1712, 560, -592, 576, -576, 576, -576, 576, -576, 576, -576, 576, -576, 576, -1696, 576, -576, 576, -1696, 576, -1696, 576, -1696, 576, -1696, 576, -576, 576, -1696, 576, -1696, 576, -576, 576, -1696, 576, -1696, 576, -576, 576, -1696]
+        default_sequence = [6944, -4576, 544, -608, 544, -1728, 544, -608, 544, -608, 544, -608, 544, -608, 544, -608, 544, -608, 544, -1728, 544, -608, 544, -1728, 592, -1680, 592, -1680, 592, -1680, 592, -560, 592, -1680, 544, -1728, 544, -608, 544, -1728, 544, -1728, 544, -608, 544, -1728, 544, -1728, 544, -608, 544, -608, 544, -1728, 544, -608, 544, -608, 544, -1728, 544, -608, 544, -608, 544, -1728, 544, -40688, 9008, -2288, 592, -304]
 
         while True:
             try:

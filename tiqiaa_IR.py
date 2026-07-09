@@ -3,6 +3,27 @@
 import usb.core
 import usb.util
 import time
+import os
+import atexit
+import readline
+
+# Konfigurace historie příkazů (UP/DOWN šipky)
+HISTORY_FILE = os.path.expanduser("~/.tiqiaa_ir_history")
+try:
+    if os.path.exists(HISTORY_FILE):
+        readline.read_history_file(HISTORY_FILE)
+    # Vypneme automatické ukládání, abychom do historie přidávali pouze signály (ne volby v menu)
+    readline.set_auto_history(False)
+except Exception:
+    pass
+
+def save_history():
+    try:
+        readline.write_history_file(HISTORY_FILE)
+    except Exception:
+        pass
+
+atexit.register(save_history)
 
 VID = 0x10c4
 PID = 0x8468
@@ -15,7 +36,8 @@ INTERFACE = 0
 
 class TiqiaaTview:
 
-    def __init__(self):
+    def __init__(self, default_frequency=38):
+        self.default_frequency = default_frequency
         self.dev = usb.core.find(
             idVendor=VID,
             idProduct=PID
@@ -366,8 +388,15 @@ class TiqiaaTview:
         print(f" ZACHYCEN IR KÓD (Počet pulzů: {len(pulses)})")
         print("="*50)
         print("Formát pro zpětné vysílání:")
-        print(f"[{', '.join(map(str, pulses))}]")
+        pulse_str = ", ".join(map(str, pulses))
+        print(f"[{pulse_str}]")
         print("="*50)
+        
+        # Přidáme zachycený kód do historie příkazů (bude dostupný přes šipku nahoru)
+        try:
+            readline.add_history(pulse_str)
+        except Exception:
+            pass
 
     #
     # hlavní smyčka pro učení
@@ -464,19 +493,13 @@ class TiqiaaTview:
                         if not pulses:
                             print("Sekvence je prázdná, zkuste to znovu.")
                             continue
+                        # Přidáme úspěšně naparsovanou sekvenci do historie
+                        readline.add_history(user_input)
                     except ValueError as ve:
                         print(f"Chyba při parsování sekvence: {ve}")
                         continue
                 
-                freq_input = input("Frekvence v kHz [výchozí 38]: ").strip()
-                frequency = 38
-                if freq_input:
-                    try:
-                        frequency = int(freq_input)
-                    except ValueError:
-                        print("Neplatná frekvence, použije se 38 kHz.")
-                
-                self.transmit_ir(pulses, frequency)
+                self.transmit_ir(pulses, self.default_frequency)
                 
             except KeyboardInterrupt:
                 # Bude zachyceno v hlavním bloku pro návrat do menu
@@ -507,9 +530,20 @@ class TiqiaaTview:
 
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Ovládání Tiqiaa Tview USB IR transceiveru")
+    parser.add_argument(
+        "-f", "--frequency",
+        type=int,
+        default=38,
+        help="Výchozí frekvence v kHz pro vysílání (např. 38)"
+    )
+    args = parser.parse_args()
+
     dev = None
     try:
-        dev = TiqiaaTview()
+        dev = TiqiaaTview(default_frequency=args.frequency)
         dev.init()
 
         while True:

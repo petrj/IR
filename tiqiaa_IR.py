@@ -54,6 +54,10 @@ class TiqiaaTview:
 
     def close(self):
         try:
+            self.set_idle()
+        except:
+            pass
+        try:
             usb.util.release_interface(
                 self.dev,
                 INTERFACE
@@ -127,6 +131,43 @@ class TiqiaaTview:
             return None
 
     #
+    # přečtení všech fragmentů a sestavení payloadu
+    #
+    def read_payload(self):
+        # Přečte první fragment
+        first_packet = self.read_data()
+        if not first_packet:
+            return None
+            
+        # Zkontrolujeme, zda má paket rozumnou délku (aspoň hlavičku 5 bajtů)
+        if len(first_packet) < 5:
+            return first_packet
+            
+        report_id = first_packet[0]
+        frag_len = first_packet[1] - 3 # Délka dat v tomto fragmentu
+        total_chunks = first_packet[3]
+        chunk_idx = first_packet[4]
+        
+        # Pokud je to HID report a má více fragmentů
+        if report_id == 0x02 and total_chunks > 1:
+            payload = bytearray(first_packet[5:5+frag_len])
+            
+            # Čteme další fragmenty
+            for idx in range(2, total_chunks + 1):
+                next_packet = self.read_data()
+                if next_packet and len(next_packet) >= 5:
+                    next_len = next_packet[1] - 3
+                    payload.extend(next_packet[5:5+next_len])
+                else:
+                    break
+            return bytes(payload)
+        else:
+            # Pokud je to jen jeden fragment, vrátíme jeho payload
+            if report_id == 0x02 and len(first_packet) >= 5:
+                return bytes(first_packet[5:5+frag_len])
+            return first_packet
+
+    #
     # inicializace
     #
     def init(self):
@@ -136,6 +177,13 @@ class TiqiaaTview:
         res = self.read_data()
         if res:
             print("Verze firmware (RAW):", res.hex())
+
+    #
+    # přepnutí do standby / idle režimu
+    #
+    def set_idle(self):
+        self.command("L")
+        time.sleep(0.5)
 
     #
     # přepnutí do režimu příjmu
@@ -164,13 +212,29 @@ class TiqiaaTview:
         
         for p in pulse_array:
             state_bit = 0x80 if p > 0 else 0x00  # Kladné číslo = ON (0x80), záporné = OFF (0x00)
-            duration_units = min(int(abs(p) / 16), 0x7F) # Převod z us zpět na jednotky 16us (max 127)
+            duration_units = int(abs(p) / 16)    # Převod z us na jednotky 16us
             
-            extra_bytes.append(state_bit | duration_units)
+            if duration_units == 0:
+                continue
+                
+            # Pokud je pulz delší než 127 jednotek (cca 2ms), musíme ho rozdělit
+            # do více bajtů se stejným stavovým bitem.
+            while duration_units > 127:
+                extra_bytes.append(state_bit | 127)
+                duration_units -= 127
+            if duration_units > 0:
+                extra_bytes.append(state_bit | duration_units)
             
         # Odešleme příkaz 'D' s našimi zkonvertovanými daty
         self.command("D", extra_bytes)
+        
+        # Přečteme potvrzení ze zařízení (očekáváme odpověď)
         time.sleep(0.5)
+        res = self.read_data()
+        if res:
+            # Potvrzení odeslání (v testovacím/testing módu lze vypsat)
+            pass
+            
         print("Vysílání dokončeno.")
 
     #
@@ -180,30 +244,85 @@ class TiqiaaTview:
         self.command("O")
 
     #
-    # dekódování IR (zlidštěná verze)
+    # dekódování IR
     #
-    def decode(self, data):
+    def decode(self, payload, testing=False):
+        if testing:
+            print(f"\n[TESTING] Surový payload (délka {len(payload)} B): {payload.hex()}")
+
+        # Hledáme marker 'D'
         try:
-            pos = data.index(ord('D'))
+            pos = payload.index(ord('D'))
         except ValueError:
+            if testing:
+                print("[TESTING] V payloadu nebyl nalezen marker 'D' označující IR data.")
             return
 
-        ir = data[pos+1:]
-        pulses = []
+        # Ujistíme se, že před 'D' je hlavička ST <id>
+        if pos >= 3 and payload[pos-3] == 0x53 and payload[pos-2] == 0x54:
+            cmd_id = payload[pos-1]
+            if testing:
+                print(f"[TESTING] Platná hlavička nalezena: ST, ID příkazu: {cmd_id}")
+        else:
+            if testing:
+                print("[TESTING] Varování: Marker 'D' nalezen, ale chybí předchozí hlavička 'ST <id>'")
 
-        for b in ir:
-            if b in (0, 0xff, 0x7f):
-                continue
+        # Frekvenční bajt je hned za 'D'
+        freq_byte = payload[pos+1]
+        if testing:
+            print(f"[TESTING] Frekvenční bajt: 0x{freq_byte:02X} ({freq_byte} kHz)")
 
+        # IR data začínají za frekvenčním bajtem
+        ir_data_start = pos + 2
+
+        # Hledáme konec "EN" (0x45, 0x4E) na konci payloadu
+        try:
+            end_pos = payload.index(b'EN', ir_data_start)
+            ir_data = payload[ir_data_start:end_pos]
+            if testing:
+                print(f"[TESTING] Nalezen konec 'EN' na pozici {end_pos}. Délka IR dat: {len(ir_data)} B")
+        except ValueError:
+            # Pokud by náhodou EN chybělo (nemělo by), vezmeme zbytek
+            ir_data = payload[ir_data_start:]
+            if testing:
+                print(f"[TESTING] Varování: Konec 'EN' nenalezen. Beru všechna zbývající data ({len(ir_data)} B)")
+
+        # 1. Sloučení po sobě jdoucích bajtů se stejným stavem (ON/OFF)
+        merged_pulses = []
+        for idx, b in enumerate(ir_data):
             state_on = bool(b & 0x80)
             duration = (b & 0x7f) * 16
 
-            if duration < 50: # filtrace šumu
-                continue
+            if merged_pulses and ((merged_pulses[-1] > 0) == state_on):
+                if state_on:
+                    merged_pulses[-1] += duration
+                else:
+                    merged_pulses[-1] -= duration
+                if testing:
+                    print(f"  [{idx:02d}] Bajt: 0x{b:02X} -> Sloučen s předchozím (Stav: {'ON' if state_on else 'OFF'}, Celková doba: {abs(merged_pulses[-1])} us)")
+            else:
+                merged_pulses.append(duration if state_on else -duration)
+                if testing:
+                    print(f"  [{idx:02d}] Bajt: 0x{b:02X} -> Nový segment (Stav: {'ON' if state_on else 'OFF'}, Doba: {duration} us)")
 
-            pulses.append(duration if state_on else -duration)
+        # 2. Filtrace šumu (odstranění příliš krátkých pulzů < 50us)
+        pulses = []
+        noise_pulses = []
+        for p in merged_pulses:
+            if abs(p) < 50:
+                noise_pulses.append(p)
+            else:
+                pulses.append(p)
+
+        if testing:
+            print(f"\n[TESTING] Statistiky:")
+            print(f"  Celkem surových segmentů po sloučení: {len(merged_pulses)}")
+            print(f"  Počet platných pulzů (> 50 us): {len(pulses)}")
+            print(f"  Odfiltrovaný šum (< 50 us): {noise_pulses}")
 
         if len(pulses) < 4:
+            if testing:
+                print("[TESTING] Příliš málo platných pulzů (< 4), ignoruji zobrazení kódu.")
             return
 
         print("\n" + "="*50)
@@ -216,24 +335,132 @@ class TiqiaaTview:
     #
     # hlavní smyčka pro učení
     #
-    def learn(self):
+    def learn(self, testing=False):
         self.start_receive()
-        print("\n=== ČEKÁM NA STISK TLAČÍTKA ===")
+        if testing:
+            print("\n=== ČEKÁM NA STISK TLAČÍTKA (TESTOVACÍ REŽIM) ===")
+        else:
+            print("\n=== ČEKÁM NA STISK TLAČÍTKA ===")
+        print("Pro návrat do hlavního menu stiskněte Ctrl+C.")
 
         while True:
             try:
                 self.request_ir()
                 time.sleep(0.05)
-                data = self.read_data()
+                payload = self.read_payload()
 
-                if data:
-                    self.decode(data)
+                if payload:
+                    self.decode(payload, testing=testing)
 
                 time.sleep(0.25)
 
             except usb.core.USBError as e:
                 print("USB ERROR:", e)
                 time.sleep(1)
+
+    #
+    # detailní výpis informací o USB zařízení (pro Testing mode)
+    #
+    def print_detailed_hw_info(self):
+        print("\n" + "="*50)
+        print(" DETAILNÍ INFORMACE O USB HARDWARU")
+        print("="*50)
+        
+        dev = self.dev
+        print(f"Výrobce:          {dev.manufacturer}")
+        print(f"Produkt:          {dev.product}")
+        print(f"Sériové číslo:    {dev.serial_number}")
+        print(f"Vendor ID (VID):  0x{dev.idVendor:04X} ({dev.idVendor})")
+        print(f"Product ID (PID): 0x{dev.idProduct:04X} ({dev.idProduct})")
+        print(f"Třída zařízení:   {dev.bDeviceClass}")
+        print(f"Podtřída:         {dev.bDeviceSubClass}")
+        print(f"Protokol:         {dev.bDeviceProtocol}")
+        print(f"Max velikost EP0: {dev.bMaxPacketSize0}")
+        print(f"Počet konfigurací: {dev.bNumConfigurations}")
+        
+        for cfg in dev:
+            print(f"\nKonfigurace {cfg.bConfigurationValue}:")
+            print(f"  Popis (index): {cfg.iConfiguration}")
+            print(f"  Celková délka: {cfg.wTotalLength}")
+            print(f"  Počet rozhraní: {cfg.bNumInterfaces}")
+            
+            for intf in cfg:
+                print(f"  Rozhraní {intf.bInterfaceNumber} (Alternate setting {intf.bAlternateSetting}):")
+                print(f"    Třída rozhraní: {intf.bInterfaceClass}")
+                print(f"    Podtřída:       {intf.bInterfaceSubClass}")
+                print(f"    Protokol:       {intf.bInterfaceProtocol}")
+                print(f"    Počet endpointů: {intf.bNumEndpoints}")
+                
+                for ep in intf:
+                    print(f"    Endpoint 0x{ep.bEndpointAddress:02X}:")
+                    print(f"      Směr:        {'Vstup (IN)' if usb.util.endpoint_direction(ep.bEndpointAddress) == usb.util.ENDPOINT_IN else 'Výstup (OUT)'}")
+                    print(f"      Typ přenosu: {usb.util.endpoint_type(ep.bmAttributes)}")
+                    print(f"      Max velikost paketu: {ep.wMaxPacketSize}")
+                    print(f"      Interval dotazování: {ep.bInterval}")
+        print("="*50 + "\n")
+
+    #
+    # smyčka režimu odesílání (Sending mode)
+    #
+    def sending_mode(self):
+        self.start_transmit()
+        print("\n=== REŽIM VYSÍLÁNÍ (Sending mode) ===")
+        print("Zadejte sekvenci pulzů jako čísla oddělená čárkami nebo mezerami (např. 256, -672, 192).")
+        print("Kladné hodnoty jsou pulzy (vysílač zapnut), záporné hodnoty jsou mezery (vysílač vypnut).")
+        print("Pro návrat do hlavního menu stiskněte Ctrl+C, nebo zadejte 'q' / 'exit'.")
+        
+        while True:
+            try:
+                user_input = input("\nSekvence k odeslání: ").strip()
+                if user_input.lower() in ('q', 'exit', ''):
+                    print("Ukončuji režim vysílání...")
+                    break
+                
+                try:
+                    pulses = self.parse_pulse_sequence(user_input)
+                    if not pulses:
+                        print("Sekvence je prázdná, zkuste to znovu.")
+                        continue
+                    
+                    freq_input = input("Frekvence v kHz [výchozí 38]: ").strip()
+                    frequency = 38
+                    if freq_input:
+                        try:
+                            frequency = int(freq_input)
+                        except ValueError:
+                            print("Neplatná frekvence, použije se 38 kHz.")
+                    
+                    self.transmit_ir(pulses, frequency)
+                    
+                except ValueError as ve:
+                    print(f"Chyba při parsování sekvence: {ve}")
+                    
+            except KeyboardInterrupt:
+                # Bude zachyceno v hlavním bloku pro návrat do menu
+                raise
+
+    #
+    # pomocná metoda pro naparsování sekvence pulzů z řetězce
+    #
+    def parse_pulse_sequence(self, input_str):
+        cleaned = input_str.strip()
+        if cleaned.startswith('[') and cleaned.endswith(']'):
+            cleaned = cleaned[1:-1]
+        
+        cleaned = cleaned.replace(',', ' ')
+        parts = cleaned.split()
+        
+        pulses = []
+        for part in parts:
+            part = part.strip()
+            if not part:
+                continue
+            try:
+                pulses.append(int(part))
+            except ValueError:
+                raise ValueError(f"Neplatné číslo: '{part}'")
+                
+        return pulses
 
 
 if __name__ == "__main__":
@@ -242,20 +469,48 @@ if __name__ == "__main__":
         dev = TiqiaaTview()
         dev.init()
 
-        # --- REŽIM 1: UČENÍ (ZÁKLADNÍ) ---
-        dev.learn()
+        while True:
+            print("\n=== HLAVNÍ MENU ===")
+            print("1] Scanning mode (příjem IR)")
+            print("2] Sending mode (vysílání IR)")
+            print("3] Testing mode (diagnostika a příjem s detaily)")
+            print("Q] Konec")
+            
+            try:
+                choice = input("Vyberte možnost (1-3, Q): ").strip().upper()
+            except (KeyboardInterrupt, EOFError):
+                print("\nUkončuji program...")
+                break
 
-        # --- REŽIM 2: UKÁZKA VYSÍLÁNÍ ---
-        # Pokud chceš kód vyslat, zakomentuj řádek `dev.learn()` výše,
-        # odkomentuj řádky níže a vlož tam pole, které ti vypsal přijímač.
-        
-        # dev.start_transmit()
-        # mojedata = [256, -672, 192, -304, -1104, -1248, 576, -560, 576, -1696, 576, -560, 576, -560, 576, -1696, 544, -528, 960, -224, 576, -304, -1104, -1248, -560, 544, -1712] # doplň svoje data
-        # dev.transmit_ir(mojedata)
+            if choice == "1":
+                try:
+                    dev.learn(testing=False)
+                except KeyboardInterrupt:
+                    print("\nNávrat do hlavního menu...")
+                    dev.set_idle()
+            elif choice == "2":
+                try:
+                    dev.sending_mode()
+                except KeyboardInterrupt:
+                    print("\nNávrat do hlavního menu...")
+                    dev.set_idle()
+            elif choice == "3":
+                try:
+                    dev.print_detailed_hw_info()
+                    dev.learn(testing=True)
+                except KeyboardInterrupt:
+                    print("\nNávrat do hlavního menu...")
+                    dev.set_idle()
+            elif choice in ("Q", "QUIT", "EXIT"):
+                print("Ukončuji program...")
+                break
+            else:
+                print("Neplatná volba, zkuste to znovu.")
 
+    except RuntimeError as re:
+        print("\nCHYBA:", re)
     except KeyboardInterrupt:
         print("\nKonec")
-
     finally:
         if dev:
             dev.close()

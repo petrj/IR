@@ -204,7 +204,7 @@ class TiqiaaTview:
         chunk_idx = first_packet[4]
         
         # Pokud je to HID report a má více fragmentů
-        if report_id == 0x02 and total_chunks > 1:
+        if report_id in (0x01, 0x02) and total_chunks > 1:
             payload = bytearray(first_packet[5:5+frag_len])
             
             # Čteme další fragmenty
@@ -218,7 +218,7 @@ class TiqiaaTview:
             return bytes(payload)
         else:
             # Pokud je to jen jeden fragment, vrátíme jeho payload
-            if report_id == 0x02 and len(first_packet) >= 5:
+            if report_id in (0x01, 0x02) and len(first_packet) >= 5:
                 return bytes(first_packet[5:5+frag_len])
             return first_packet
 
@@ -264,6 +264,9 @@ class TiqiaaTview:
     # odeslání IR dat (vysílání)
     #
     def transmit_ir(self, pulse_array, frequency_khz=38):
+        # Aktivujeme vysílací režim těsně před posláním dat
+        self.start_transmit()
+        
         print(f"Vysílám IR signál ({len(pulse_array)} pulzů, frekvence {frequency_khz}kHz)...")
         
         extra_bytes = bytearray()
@@ -271,7 +274,7 @@ class TiqiaaTview:
         
         for p in pulse_array:
             state_bit = 0x80 if p > 0 else 0x00  # Kladné číslo = ON (0x80), záporné = OFF (0x00)
-            duration_units = int(abs(p) / 16)    # Převod z us na jednotky 16us
+            duration_units = round(abs(p) / 16)    # Převod z us na jednotky 16us
             
             if duration_units == 0:
                 continue
@@ -291,10 +294,12 @@ class TiqiaaTview:
         time.sleep(0.5)
         res = self.read_data()
         if res:
-            # Potvrzení odeslání (v testovacím/testing módu lze vypsat)
-            pass
+            print(f"[DEBUG] Odpověď na odeslání (D): {res.hex()}")
             
         print("Vysílání dokončeno.")
+        
+        # Vrátíme zařízení do standby režimu
+        self.set_idle()
 
     #
     # požadavek na IR data (v režimu příjmu)
@@ -469,7 +474,6 @@ class TiqiaaTview:
     # smyčka režimu odesílání (Sending mode)
     #
     def sending_mode(self):
-        self.start_transmit()
         print("\n=== REŽIM VYSÍLÁNÍ (Sending mode) ===")
         print("Zadejte sekvenci pulzů jako čísla oddělená čárkami nebo mezerami (např. 256, -672, 192).")
         print("Kladné hodnoty jsou pulzy (vysílač zapnut), záporné hodnoty jsou mezery (vysílač vypnut).")
@@ -536,8 +540,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "-f", "--frequency",
         type=int,
-        default=38,
-        help="Výchozí frekvence v kHz pro vysílání (např. 38)"
+        default=255,
+        help="Výchozí frekvence v kHz pro vysílání (např. 255)"
     )
     args = parser.parse_args()
 

@@ -47,6 +47,12 @@ class TiqiaaTview:
             INTERFACE
         )
 
+        try:
+            self.dev.clear_halt(EP_OUT)
+            self.dev.clear_halt(EP_IN)
+        except Exception as e:
+            print(f"Varování při čištění endpointů: {e}")
+
         self.cmd_id = 1
         self.usb_pack_counter = 1
         self.testing = False
@@ -100,14 +106,14 @@ class TiqiaaTview:
         total_chunks = len(chunks)
 
         for idx, chunk in enumerate(chunks):
-            packet = bytearray(64)
+            packet = bytearray(5 + len(chunk))
             packet[0] = 0x02              # Report ID
             packet[1] = len(chunk) + 3    # Velikost fragmentu + 3
             packet[2] = self.usb_pack_counter # Čítač paketů (1..15)
             packet[3] = total_chunks      # Celkový počet fragmentů
             packet[4] = idx + 1           # Index aktuálního fragmentu (1-based)
 
-            packet[5:5+len(chunk)] = chunk
+            packet[5:] = chunk
 
             if self.testing or total_chunks > 1:
                 print(f"[DEBUG] Zapisuji fragment {idx+1}/{total_chunks} (délka: {len(chunk)} B, čítač: {packet[2]})...")
@@ -117,14 +123,14 @@ class TiqiaaTview:
                 packet,
                 timeout=3000
             )
-
-            # Inkrementujeme čítač pro příští paket a omezíme na 1..15
-            self.usb_pack_counter += 1
-            if self.usb_pack_counter > 15:
-                self.usb_pack_counter = 1
             
             # Firmware je pomalý, chvilku počkáme mezi fragmenty/pakety
             time.sleep(0.15)
+
+        # Inkrementujeme čítač pro příští příkaz a omezíme na 1..15
+        self.usb_pack_counter += 1
+        if self.usb_pack_counter > 15:
+            self.usb_pack_counter = 1
 
     #
     # přečtení odpovědi
@@ -212,6 +218,7 @@ class TiqiaaTview:
     def set_idle(self):
         self.command("L")
         time.sleep(0.5)
+        self.read_data()
 
     #
     # přepnutí do režimu příjmu
@@ -220,6 +227,7 @@ class TiqiaaTview:
         print("\n=== REŽIM PŘÍJMU AKTIVOVÁN ===")
         self.command("R")  # Přepnutí transceiveru do Receive modu
         time.sleep(0.5)
+        self.read_data()
 
     #
     # přepnutí do režimu vysílání
@@ -228,6 +236,7 @@ class TiqiaaTview:
         print("\n=== REŽIM VYSÍLÁNÍ AKTIVOVÁN ===")
         self.command("S")  # Přepnutí transceiveru do Send modu
         time.sleep(0.5)
+        self.read_data()
 
     #
     # odeslání IR dat (vysílání)

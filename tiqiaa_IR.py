@@ -48,6 +48,8 @@ class TiqiaaTview:
         )
 
         self.cmd_id = 1
+        self.usb_pack_counter = 1
+        self.testing = False
         print(
             "Interface OK"
         )
@@ -101,17 +103,25 @@ class TiqiaaTview:
             packet = bytearray(64)
             packet[0] = 0x02              # Report ID
             packet[1] = len(chunk) + 3    # Velikost fragmentu + 3
-            packet[2] = 1                 # Counter paketů
+            packet[2] = self.usb_pack_counter # Čítač paketů (1..15)
             packet[3] = total_chunks      # Celkový počet fragmentů
             packet[4] = idx + 1           # Index aktuálního fragmentu (1-based)
 
             packet[5:5+len(chunk)] = chunk
+
+            if self.testing or total_chunks > 1:
+                print(f"[DEBUG] Zapisuji fragment {idx+1}/{total_chunks} (délka: {len(chunk)} B, čítač: {packet[2]})...")
 
             self.dev.write(
                 EP_OUT,
                 packet,
                 timeout=3000
             )
+
+            # Inkrementujeme čítač pro příští paket a omezíme na 1..15
+            self.usb_pack_counter += 1
+            if self.usb_pack_counter > 15:
+                self.usb_pack_counter = 1
             
             # Firmware je pomalý, chvilku počkáme mezi fragmenty/pakety
             time.sleep(0.15)
@@ -119,16 +129,33 @@ class TiqiaaTview:
     #
     # přečtení odpovědi
     #
-    def read_data(self):
+    def read_data(self, length=1024):
         try:
             data = self.dev.read(
                 EP_IN,
-                64,
+                length,
                 timeout=1000
             )
             return bytes(data)
         except usb.core.USBTimeoutError:
             return None
+
+    #
+    # vyčištění vstupního bufferu
+    #
+    def flush_input(self):
+        print("Čistím vstupní USB buffer...")
+        flushed_bytes = 0
+        while True:
+            try:
+                data = self.dev.read(EP_IN, 1024, timeout=50)
+                if not data:
+                    break
+                flushed_bytes += len(data)
+            except usb.core.USBError:
+                break
+        if flushed_bytes > 0:
+            print(f"Vyčištěno {flushed_bytes} bajtů starých dat.")
 
     #
     # přečtení všech fragmentů a sestavení payloadu
@@ -171,6 +198,7 @@ class TiqiaaTview:
     # inicializace
     #
     def init(self):
+        self.flush_input()
         print("\n=== VERSION ===")
         self.command("V")
         time.sleep(0.5)
@@ -409,32 +437,38 @@ class TiqiaaTview:
         print("Kladné hodnoty jsou pulzy (vysílač zapnut), záporné hodnoty jsou mezery (vysílač vypnut).")
         print("Pro návrat do hlavního menu stiskněte Ctrl+C, nebo zadejte 'q' / 'exit'.")
         
+        default_sequence = [6976, -4528, 544, -592, 544, -1712, 560, -592, 576, -576, 576, -576, 576, -576, 576, -576, 576, -576, 576, -1696, 576, -576, 576, -1696, 576, -1696, 576, -1696, 576, -1696, 576, -576, 576, -1696, 576, -1696, 576, -576, 576, -1696, 576, -1696, 576, -576, 576, -1696]
+
         while True:
             try:
-                user_input = input("\nSekvence k odeslání: ").strip()
-                if user_input.lower() in ('q', 'exit', ''):
+                user_input = input("\nSekvence k odeslání [Enter pro výchozí]: ").strip()
+                if user_input.lower() in ('q', 'exit'):
                     print("Ukončuji režim vysílání...")
                     break
                 
-                try:
-                    pulses = self.parse_pulse_sequence(user_input)
-                    if not pulses:
-                        print("Sekvence je prázdná, zkuste to znovu.")
+                if not user_input:
+                    pulses = default_sequence
+                    print(f"Používám výchozí sekvenci ({len(pulses)} pulzů)...")
+                else:
+                    try:
+                        pulses = self.parse_pulse_sequence(user_input)
+                        if not pulses:
+                            print("Sekvence je prázdná, zkuste to znovu.")
+                            continue
+                    except ValueError as ve:
+                        print(f"Chyba při parsování sekvence: {ve}")
                         continue
-                    
-                    freq_input = input("Frekvence v kHz [výchozí 38]: ").strip()
-                    frequency = 38
-                    if freq_input:
-                        try:
-                            frequency = int(freq_input)
-                        except ValueError:
-                            print("Neplatná frekvence, použije se 38 kHz.")
-                    
-                    self.transmit_ir(pulses, frequency)
-                    
-                except ValueError as ve:
-                    print(f"Chyba při parsování sekvence: {ve}")
-                    
+                
+                freq_input = input("Frekvence v kHz [výchozí 38]: ").strip()
+                frequency = 38
+                if freq_input:
+                    try:
+                        frequency = int(freq_input)
+                    except ValueError:
+                        print("Neplatná frekvence, použije se 38 kHz.")
+                
+                self.transmit_ir(pulses, frequency)
+                
             except KeyboardInterrupt:
                 # Bude zachyceno v hlavním bloku pro návrat do menu
                 raise

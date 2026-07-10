@@ -4,15 +4,20 @@ import usb.core
 import usb.util
 import time
 import os
+import sys
 import atexit
 import readline
+import json
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse, parse_qs
 
-# Konfigurace historie příkazů (UP/DOWN šipky)
+# Command history configuration (UP/DOWN arrows)
 HISTORY_FILE = os.path.expanduser("~/.tiqiaa_ir_history")
 try:
     if os.path.exists(HISTORY_FILE):
         readline.read_history_file(HISTORY_FILE)
-    # Vypneme automatické ukládání, abychom do historie přidávali pouze signály (ne volby v menu)
+    # Disable automatic history so that only signals are stored (not menu choices)
     readline.set_auto_history(False)
 except Exception:
     pass
@@ -33,6 +38,16 @@ EP_IN = 0x81
 
 INTERFACE = 0
 
+# Default IR pulse sequence used when no input is provided (Sharp Repro EQ button)
+DEFAULT_SEQUENCE = [
+    6944, -4576, 544, -608, 544, -1728, 544, -608, 544, -608, 544, -608, 544,
+    -608, 544, -608, 544, -608, 544, -1728, 544, -608, 544, -1728, 592, -1680,
+    592, -1680, 592, -1680, 592, -560, 592, -1680, 544, -1728, 544, -608, 544,
+    -1728, 544, -1728, 544, -608, 544, -1728, 544, -1728, 544, -608, 544, -608,
+    544, -1728, 544, -608, 544, -608, 544, -1728, 544, -608, 544, -608, 544,
+    -1728, 544, -40688, 9008, -2288, 592, -304
+]
+
 
 class TiqiaaTview:
 
@@ -45,10 +60,10 @@ class TiqiaaTview:
 
         if self.dev is None:
             raise RuntimeError(
-                "Tiqiaa Tview nenalezen"
+                "Tiqiaa Tview not found"
             )
 
-        print("Zařízení nalezeno")
+        print("Device found")
         print(
             self.dev.manufacturer,
             self.dev.product
@@ -58,7 +73,7 @@ class TiqiaaTview:
 
         if self.dev.is_kernel_driver_active(INTERFACE):
             print(
-                "Odpojuji kernel driver"
+                "Detaching kernel driver"
             )
             self.dev.detach_kernel_driver(
                 INTERFACE
@@ -96,13 +111,13 @@ class TiqiaaTview:
     # ST <id> <cmd> EN
     #
     def command(self, cmd, extra_bytes=None):
-        # Základ příkazu: ST + id + cmd
+        # Command base: ST + id + cmd
         packet_header = bytearray([0x53, 0x54, self.cmd_id, ord(cmd)])
-        
+
         if extra_bytes:
             packet_header.extend(extra_bytes)
-            
-        # Konec příkazu: EN
+
+        # Command terminator: EN
         packet_header.extend([0x45, 0x4e])
 
         self.send_bulk(bytes(packet_header))
@@ -112,11 +127,11 @@ class TiqiaaTview:
             self.cmd_id = 1
 
     #
-    # USB bulk packet (s fragmentací podle protokolu)
+    # USB bulk packet (with fragmentation according to the protocol)
     #
     def send_bulk(self, data):
-        # Maximální velikost dat v jednom fragmentu je 56 bajtů
-        # Pokud by data byla delší, protokol vyžaduje rozdělení (fragmentaci)
+        # The maximum data size in a single fragment is 56 bytes.
+        # If the data is longer, the protocol requires splitting (fragmentation).
         max_chunk = 56
         chunks = [data[i:i + max_chunk] for i in range(0, len(data), max_chunk)]
         total_chunks = len(chunks)
@@ -124,32 +139,32 @@ class TiqiaaTview:
         for idx, chunk in enumerate(chunks):
             packet = bytearray(5 + len(chunk))
             packet[0] = 0x02              # Report ID
-            packet[1] = len(chunk) + 3    # Velikost fragmentu + 3
-            packet[2] = self.usb_pack_counter # Čítač paketů (1..15)
-            packet[3] = total_chunks      # Celkový počet fragmentů
-            packet[4] = idx + 1           # Index aktuálního fragmentu (1-based)
+            packet[1] = len(chunk) + 3    # Fragment size + 3
+            packet[2] = self.usb_pack_counter  # Packet counter (1..15)
+            packet[3] = total_chunks      # Total number of fragments
+            packet[4] = idx + 1           # Current fragment index (1-based)
 
             packet[5:] = chunk
 
             if self.testing or total_chunks > 1:
-                print(f"[DEBUG] Zapisuji fragment {idx+1}/{total_chunks} (délka: {len(chunk)} B, čítač: {packet[2]})...")
+                print(f"[DEBUG] Writing fragment {idx+1}/{total_chunks} (length: {len(chunk)} B, counter: {packet[2]})...")
 
             self.dev.write(
                 EP_OUT,
                 packet,
                 timeout=3000
             )
-            
-            # Firmware je pomalý, chvilku počkáme mezi fragmenty/pakety
+
+            # The firmware is slow, wait a bit between fragments/packets
             time.sleep(0.15)
 
-        # Inkrementujeme čítač pro příští příkaz a omezíme na 1..15
+        # Increment the counter for the next command and clamp it to 1..15
         self.usb_pack_counter += 1
         if self.usb_pack_counter > 15:
             self.usb_pack_counter = 1
 
     #
-    # přečtení odpovědi
+    # read the response
     #
     def read_data(self, length=1024):
         try:
@@ -163,10 +178,10 @@ class TiqiaaTview:
             return None
 
     #
-    # vyčištění vstupního bufferu
+    # flush the input buffer
     #
     def flush_input(self):
-        print("Čistím vstupní USB buffer...")
+        print("Flushing USB input buffer...")
         flushed_bytes = 0
         while True:
             try:
@@ -177,31 +192,31 @@ class TiqiaaTview:
             except usb.core.USBError:
                 break
         if flushed_bytes > 0:
-            print(f"Vyčištěno {flushed_bytes} bajtů starých dat.")
+            print(f"Flushed {flushed_bytes} bytes of stale data.")
 
     #
-    # přečtení všech fragmentů a sestavení payloadu
+    # read all fragments and assemble the payload
     #
     def read_payload(self):
-        # Přečte první fragment
+        # Read the first fragment
         first_packet = self.read_data()
         if not first_packet:
             return None
-            
-        # Zkontrolujeme, zda má paket rozumnou délku (aspoň hlavičku 5 bajtů)
+
+        # Make sure the packet has a reasonable length (at least the 5-byte header)
         if len(first_packet) < 5:
             return first_packet
-            
+
         report_id = first_packet[0]
-        frag_len = first_packet[1] - 3 # Délka dat v tomto fragmentu
+        frag_len = first_packet[1] - 3  # Data length in this fragment
         total_chunks = first_packet[3]
         chunk_idx = first_packet[4]
-        
-        # Pokud je to HID report a má více fragmentů
+
+        # If it is a HID report with multiple fragments
         if report_id in (0x01, 0x02) and total_chunks > 1:
             payload = bytearray(first_packet[5:5+frag_len])
-            
-            # Čteme další fragmenty
+
+            # Read the remaining fragments
             for idx in range(2, total_chunks + 1):
                 next_packet = self.read_data()
                 if next_packet and len(next_packet) >= 5:
@@ -211,13 +226,13 @@ class TiqiaaTview:
                     break
             return bytes(payload)
         else:
-            # Pokud je to jen jeden fragment, vrátíme jeho payload
+            # If it is only a single fragment, return its payload
             if report_id in (0x01, 0x02) and len(first_packet) >= 5:
                 return bytes(first_packet[5:5+frag_len])
             return first_packet
 
     #
-    # inicializace
+    # initialization
     #
     def init(self):
         self.flush_input()
@@ -226,10 +241,10 @@ class TiqiaaTview:
         time.sleep(0.5)
         res = self.read_data()
         if res:
-            print("Verze firmware (RAW):", res.hex())
+            print("Firmware version (RAW):", res.hex())
 
     #
-    # přepnutí do standby / idle režimu
+    # switch to standby / idle mode
     #
     def set_idle(self):
         self.command("L")
@@ -237,115 +252,115 @@ class TiqiaaTview:
         self.read_data()
 
     #
-    # přepnutí do režimu příjmu
+    # switch to receive mode
     #
     def start_receive(self):
-        print("\n=== REŽIM PŘÍJMU AKTIVOVÁN ===")
-        self.command("R")  # Přepnutí transceiveru do Receive modu
+        print("\n=== RECEIVE MODE ACTIVATED ===")
+        self.command("R")  # Switch the transceiver into Receive mode
         time.sleep(0.5)
         self.read_data()
 
     #
-    # přepnutí do režimu vysílání
+    # switch to transmit mode
     #
     def start_transmit(self):
-        print("\n=== REŽIM VYSÍLÁNÍ AKTIVOVÁN ===")
-        self.command("S")  # Přepnutí transceiveru do Send modu
+        print("\n=== TRANSMIT MODE ACTIVATED ===")
+        self.command("S")  # Switch the transceiver into Send mode
         time.sleep(0.5)
         self.read_data()
 
     #
-    # odeslání IR dat (vysílání)
+    # send IR data (transmit)
     #
     def transmit_ir(self, pulse_array, frequency_khz=38):
-        # Aktivujeme vysílací režim těsně před posláním dat
+        # Activate transmit mode right before sending the data
         self.start_transmit()
-        
-        print(f"Vysílám IR signál ({len(pulse_array)} pulzů, frekvence {frequency_khz}kHz)...")
-        
+
+        print(f"Transmitting IR signal ({len(pulse_array)} pulses, frequency {frequency_khz}kHz)...")
+
         extra_bytes = bytearray()
-        extra_bytes.append(frequency_khz) # Přidání frekvence (např. 38 = 0x26)
-        
+        extra_bytes.append(frequency_khz)  # Add the frequency (e.g. 38 = 0x26)
+
         for p in pulse_array:
-            state_bit = 0x80 if p > 0 else 0x00  # Kladné číslo = ON (0x80), záporné = OFF (0x00)
-            duration_units = round(abs(p) / 16)    # Převod z us na jednotky 16us
-            
+            state_bit = 0x80 if p > 0 else 0x00  # Positive number = ON (0x80), negative = OFF (0x00)
+            duration_units = round(abs(p) / 16)    # Convert from us to 16us units
+
             if duration_units == 0:
                 continue
-                
-            # Pokud je pulz delší než 127 jednotek (cca 2ms), musíme ho rozdělit
-            # do více bajtů se stejným stavovým bitem.
+
+            # If the pulse is longer than 127 units (approx. 2ms), it must be split
+            # into multiple bytes carrying the same state bit.
             while duration_units > 127:
                 extra_bytes.append(state_bit | 127)
                 duration_units -= 127
             if duration_units > 0:
                 extra_bytes.append(state_bit | duration_units)
-            
-        # Odešleme příkaz 'D' s našimi zkonvertovanými daty
+
+        # Send the 'D' command with our converted data
         self.command("D", extra_bytes)
-        
-        # Přečteme potvrzení ze zařízení (očekáváme odpověď)
+
+        # Read the acknowledgement from the device (we expect a response)
         time.sleep(0.5)
         res = self.read_data()
         if res:
-            print(f"[DEBUG] Odpověď na odeslání (D): {res.hex()}")
-            
-        print("Vysílání dokončeno.")
-        
-        # Vrátíme zařízení do standby režimu
+            print(f"[DEBUG] Response to transmit (D): {res.hex()}")
+
+        print("Transmission complete.")
+
+        # Return the device to standby mode
         self.set_idle()
 
     #
-    # požadavek na IR data (v režimu příjmu)
+    # request IR data (while in receive mode)
     #
     def request_ir(self):
         self.command("O")
 
     #
-    # dekódování IR
+    # decode IR
     #
-    def decode(self, payload, testing=False):
+    def decode(self, payload, testing=False, print_result=True):
         if testing:
-            print(f"\n[TESTING] Surový payload (délka {len(payload)} B): {payload.hex()}")
+            print(f"\n[TESTING] Raw payload (length {len(payload)} B): {payload.hex()}")
 
-        # Hledáme marker 'D'
+        # Look for the 'D' marker
         try:
             pos = payload.index(ord('D'))
         except ValueError:
             if testing:
-                print("[TESTING] V payloadu nebyl nalezen marker 'D' označující IR data.")
-            return
+                print("[TESTING] No 'D' marker denoting IR data was found in the payload.")
+            return None
 
-        # Ujistíme se, že před 'D' je hlavička ST <id>
+        # Make sure the ST <id> header precedes 'D'
         if pos >= 3 and payload[pos-3] == 0x53 and payload[pos-2] == 0x54:
             cmd_id = payload[pos-1]
             if testing:
-                print(f"[TESTING] Platná hlavička nalezena: ST, ID příkazu: {cmd_id}")
+                print(f"[TESTING] Valid header found: ST, command ID: {cmd_id}")
         else:
             if testing:
-                print("[TESTING] Varování: Marker 'D' nalezen, ale chybí předchozí hlavička 'ST <id>'")
+                print("[TESTING] Warning: 'D' marker found, but the preceding 'ST <id>' header is missing")
 
-        # Frekvenční bajt je hned za 'D'
+        # The frequency byte comes right after 'D'
         freq_byte = payload[pos+1]
         if testing:
-            print(f"[TESTING] Frekvenční bajt: 0x{freq_byte:02X} ({freq_byte} kHz)")
+            print(f"[TESTING] Frequency byte: 0x{freq_byte:02X} ({freq_byte} kHz)")
 
-        # IR data začínají za frekvenčním bajtem
+        # IR data starts after the frequency byte
         ir_data_start = pos + 2
 
-        # Hledáme konec "EN" (0x45, 0x4E) na konci payloadu
+        # Look for the "EN" terminator (0x45, 0x4E) at the end of the payload
         try:
             end_pos = payload.index(b'EN', ir_data_start)
             ir_data = payload[ir_data_start:end_pos]
             if testing:
-                print(f"[TESTING] Nalezen konec 'EN' na pozici {end_pos}. Délka IR dat: {len(ir_data)} B")
+                print(f"[TESTING] Found 'EN' terminator at position {end_pos}. IR data length: {len(ir_data)} B")
         except ValueError:
-            # Pokud by náhodou EN chybělo (nemělo by), vezmeme zbytek
+            # If 'EN' happens to be missing (it should not), take the rest
             ir_data = payload[ir_data_start:]
             if testing:
-                print(f"[TESTING] Varování: Konec 'EN' nenalezen. Beru všechna zbývající data ({len(ir_data)} B)")
+                print(f"[TESTING] Warning: 'EN' terminator not found. Taking all remaining data ({len(ir_data)} B)")
 
-        # 1. Sloučení po sobě jdoucích bajtů se stejným stavem (ON/OFF)
+        # 1. Merge consecutive bytes carrying the same state (ON/OFF)
         merged_pulses = []
         for idx, b in enumerate(ir_data):
             state_on = bool(b & 0x80)
@@ -357,13 +372,13 @@ class TiqiaaTview:
                 else:
                     merged_pulses[-1] -= duration
                 if testing:
-                    print(f"  [{idx:02d}] Bajt: 0x{b:02X} -> Sloučen s předchozím (Stav: {'ON' if state_on else 'OFF'}, Celková doba: {abs(merged_pulses[-1])} us)")
+                    print(f"  [{idx:02d}] Byte: 0x{b:02X} -> Merged with previous (State: {'ON' if state_on else 'OFF'}, Total duration: {abs(merged_pulses[-1])} us)")
             else:
                 merged_pulses.append(duration if state_on else -duration)
                 if testing:
-                    print(f"  [{idx:02d}] Bajt: 0x{b:02X} -> Nový segment (Stav: {'ON' if state_on else 'OFF'}, Doba: {duration} us)")
+                    print(f"  [{idx:02d}] Byte: 0x{b:02X} -> New segment (State: {'ON' if state_on else 'OFF'}, Duration: {duration} us)")
 
-        # 2. Filtrace šumu (odstranění příliš krátkých pulzů < 50us)
+        # 2. Noise filtering (remove pulses that are too short < 50us)
         pulses = []
         noise_pulses = []
         for p in merged_pulses:
@@ -373,40 +388,68 @@ class TiqiaaTview:
                 pulses.append(p)
 
         if testing:
-            print(f"\n[TESTING] Statistiky:")
-            print(f"  Celkem surových segmentů po sloučení: {len(merged_pulses)}")
-            print(f"  Počet platných pulzů (> 50 us): {len(pulses)}")
-            print(f"  Odfiltrovaný šum (< 50 us): {noise_pulses}")
+            print(f"\n[TESTING] Statistics:")
+            print(f"  Total raw segments after merge: {len(merged_pulses)}")
+            print(f"  Number of valid pulses (> 50 us): {len(pulses)}")
+            print(f"  Filtered-out noise (< 50 us): {noise_pulses}")
 
         if len(pulses) < 4:
             if testing:
-                print("[TESTING] Příliš málo platných pulzů (< 4), ignoruji zobrazení kódu.")
-            return
+                print("[TESTING] Too few valid pulses (< 4), ignoring the code.")
+            return None
 
-        print("\n" + "="*50)
-        print(f" ZACHYCEN IR KÓD (Počet pulzů: {len(pulses)})")
-        print("="*50)
-        print("Formát pro zpětné vysílání:")
         pulse_str = ", ".join(map(str, pulses))
-        print(f"[{pulse_str}]")
-        print("="*50)
-        
-        # Přidáme zachycený kód do historie příkazů (bude dostupný přes šipku nahoru)
+
+        if print_result:
+            print("\n" + "="*50)
+            print(f" IR CODE CAPTURED (Pulse count: {len(pulses)})")
+            print("="*50)
+            print("Format for re-transmission:")
+            print(f"[{pulse_str}]")
+            print("="*50)
+
+        # Add the captured code to the command history (available via arrow up)
         try:
             readline.add_history(pulse_str)
         except Exception:
             pass
 
+        return pulses
+
     #
-    # hlavní smyčka pro učení
+    # capture a single IR code (used by the REST API)
+    #
+    def capture_once(self, timeout=10.0, testing=False):
+        self.start_receive()
+        deadline = time.time() + timeout
+        try:
+            while time.time() < deadline:
+                try:
+                    self.request_ir()
+                    time.sleep(0.05)
+                    payload = self.read_payload()
+                    if payload:
+                        pulses = self.decode(payload, testing=testing, print_result=False)
+                        if pulses:
+                            return pulses
+                    time.sleep(0.25)
+                except usb.core.USBError as e:
+                    print("USB ERROR:", e)
+                    time.sleep(1)
+        finally:
+            self.set_idle()
+        return None
+
+    #
+    # main learning loop
     #
     def learn(self, testing=False):
         self.start_receive()
         if testing:
-            print("\n=== ČEKÁM NA STISK TLAČÍTKA (TESTOVACÍ REŽIM) ===")
+            print("\n=== WAITING FOR A BUTTON PRESS (TESTING MODE) ===")
         else:
-            print("\n=== ČEKÁM NA STISK TLAČÍTKA ===")
-        print("Pro návrat do hlavního menu stiskněte Ctrl+C.")
+            print("\n=== WAITING FOR A BUTTON PRESS ===")
+        print("Press Ctrl+C to return to the main menu.")
 
         while True:
             try:
@@ -424,96 +467,94 @@ class TiqiaaTview:
                 time.sleep(1)
 
     #
-    # detailní výpis informací o USB zařízení (pro Testing mode)
+    # detailed dump of USB device information (for Testing mode)
     #
     def print_detailed_hw_info(self):
         print("\n" + "="*50)
-        print(" DETAILNÍ INFORMACE O USB HARDWARU")
+        print(" DETAILED USB HARDWARE INFORMATION")
         print("="*50)
-        
+
         dev = self.dev
-        print(f"Výrobce:          {dev.manufacturer}")
-        print(f"Produkt:          {dev.product}")
-        print(f"Sériové číslo:    {dev.serial_number}")
-        print(f"Vendor ID (VID):  0x{dev.idVendor:04X} ({dev.idVendor})")
-        print(f"Product ID (PID): 0x{dev.idProduct:04X} ({dev.idProduct})")
-        print(f"Třída zařízení:   {dev.bDeviceClass}")
-        print(f"Podtřída:         {dev.bDeviceSubClass}")
-        print(f"Protokol:         {dev.bDeviceProtocol}")
-        print(f"Max velikost EP0: {dev.bMaxPacketSize0}")
-        print(f"Počet konfigurací: {dev.bNumConfigurations}")
-        
+        print(f"Manufacturer:      {dev.manufacturer}")
+        print(f"Product:           {dev.product}")
+        print(f"Serial number:     {dev.serial_number}")
+        print(f"Vendor ID (VID):   0x{dev.idVendor:04X} ({dev.idVendor})")
+        print(f"Product ID (PID):  0x{dev.idProduct:04X} ({dev.idProduct})")
+        print(f"Device class:      {dev.bDeviceClass}")
+        print(f"Subclass:          {dev.bDeviceSubClass}")
+        print(f"Protocol:          {dev.bDeviceProtocol}")
+        print(f"Max EP0 size:      {dev.bMaxPacketSize0}")
+        print(f"Configurations:    {dev.bNumConfigurations}")
+
         for cfg in dev:
-            print(f"\nKonfigurace {cfg.bConfigurationValue}:")
-            print(f"  Popis (index): {cfg.iConfiguration}")
-            print(f"  Celková délka: {cfg.wTotalLength}")
-            print(f"  Počet rozhraní: {cfg.bNumInterfaces}")
-            
+            print(f"\nConfiguration {cfg.bConfigurationValue}:")
+            print(f"  Description (index): {cfg.iConfiguration}")
+            print(f"  Total length:        {cfg.wTotalLength}")
+            print(f"  Number of interfaces: {cfg.bNumInterfaces}")
+
             for intf in cfg:
-                print(f"  Rozhraní {intf.bInterfaceNumber} (Alternate setting {intf.bAlternateSetting}):")
-                print(f"    Třída rozhraní: {intf.bInterfaceClass}")
-                print(f"    Podtřída:       {intf.bInterfaceSubClass}")
-                print(f"    Protokol:       {intf.bInterfaceProtocol}")
-                print(f"    Počet endpointů: {intf.bNumEndpoints}")
-                
+                print(f"  Interface {intf.bInterfaceNumber} (Alternate setting {intf.bAlternateSetting}):")
+                print(f"    Interface class: {intf.bInterfaceClass}")
+                print(f"    Subclass:        {intf.bInterfaceSubClass}")
+                print(f"    Protocol:        {intf.bInterfaceProtocol}")
+                print(f"    Endpoints:       {intf.bNumEndpoints}")
+
                 for ep in intf:
                     print(f"    Endpoint 0x{ep.bEndpointAddress:02X}:")
-                    print(f"      Směr:        {'Vstup (IN)' if usb.util.endpoint_direction(ep.bEndpointAddress) == usb.util.ENDPOINT_IN else 'Výstup (OUT)'}")
-                    print(f"      Typ přenosu: {usb.util.endpoint_type(ep.bmAttributes)}")
-                    print(f"      Max velikost paketu: {ep.wMaxPacketSize}")
-                    print(f"      Interval dotazování: {ep.bInterval}")
+                    print(f"      Direction:    {'Input (IN)' if usb.util.endpoint_direction(ep.bEndpointAddress) == usb.util.ENDPOINT_IN else 'Output (OUT)'}")
+                    print(f"      Transfer type: {usb.util.endpoint_type(ep.bmAttributes)}")
+                    print(f"      Max packet size: {ep.wMaxPacketSize}")
+                    print(f"      Polling interval: {ep.bInterval}")
         print("="*50 + "\n")
 
     #
-    # smyčka režimu odesílání (Sending mode)
+    # sending mode loop (Sending mode)
     #
     def sending_mode(self):
-        print("\n=== REŽIM VYSÍLÁNÍ (Sending mode) ===")
-        print("Zadejte sekvenci pulzů jako čísla oddělená čárkami nebo mezerami (např. 256, -672, 192).")
-        print("Kladné hodnoty jsou pulzy (vysílač zapnut), záporné hodnoty jsou mezery (vysílač vypnut).")
-        print("Pro návrat do hlavního menu stiskněte Ctrl+C, nebo zadejte 'q' / 'exit'.")
-        
-        default_sequence = [6944, -4576, 544, -608, 544, -1728, 544, -608, 544, -608, 544, -608, 544, -608, 544, -608, 544, -608, 544, -1728, 544, -608, 544, -1728, 592, -1680, 592, -1680, 592, -1680, 592, -560, 592, -1680, 544, -1728, 544, -608, 544, -1728, 544, -1728, 544, -608, 544, -1728, 544, -1728, 544, -608, 544, -608, 544, -1728, 544, -608, 544, -608, 544, -1728, 544, -608, 544, -608, 544, -1728, 544, -40688, 9008, -2288, 592, -304]
+        print("\n=== TRANSMIT MODE (Sending mode) ===")
+        print("Enter a pulse sequence as numbers separated by commas or spaces (e.g. 256, -672, 192).")
+        print("Positive values are pulses (transmitter on), negative values are gaps (transmitter off).")
+        print("Press Ctrl+C to return to the main menu, or type 'q' / 'exit'.")
 
         while True:
             try:
-                user_input = input("\nSekvence k odeslání [Enter pro výchozí]: ").strip()
+                user_input = input("\nSequence to send [Enter for default]: ").strip()
                 if user_input.lower() in ('q', 'exit'):
-                    print("Ukončuji režim vysílání...")
+                    print("Leaving transmit mode...")
                     break
-                
+
                 if not user_input:
-                    pulses = default_sequence
-                    print(f"Používám výchozí sekvenci ({len(pulses)} pulzů)...")
+                    pulses = DEFAULT_SEQUENCE
+                    print(f"Using the default sequence ({len(pulses)} pulses)...")
                 else:
                     try:
                         pulses = self.parse_pulse_sequence(user_input)
                         if not pulses:
-                            print("Sekvence je prázdná, zkuste to znovu.")
+                            print("The sequence is empty, please try again.")
                             continue
-                        # Přidáme úspěšně naparsovanou sekvenci do historie
+                        # Add the successfully parsed sequence to the history
                         readline.add_history(user_input)
                     except ValueError as ve:
-                        print(f"Chyba při parsování sekvence: {ve}")
+                        print(f"Error while parsing the sequence: {ve}")
                         continue
-                
+
                 self.transmit_ir(pulses, self.default_frequency)
-                
+
             except KeyboardInterrupt:
-                # Bude zachyceno v hlavním bloku pro návrat do menu
+                # Will be caught in the main block to return to the menu
                 raise
 
     #
-    # pomocná metoda pro naparsování sekvence pulzů z řetězce
+    # helper method to parse a pulse sequence from a string
     #
     def parse_pulse_sequence(self, input_str):
         cleaned = input_str.strip()
         if cleaned.startswith('[') and cleaned.endswith(']'):
             cleaned = cleaned[1:-1]
-        
+
         cleaned = cleaned.replace(',', ' ')
         parts = cleaned.split()
-        
+
         pulses = []
         for part in parts:
             part = part.strip()
@@ -522,20 +563,236 @@ class TiqiaaTview:
             try:
                 pulses.append(int(part))
             except ValueError:
-                raise ValueError(f"Neplatné číslo: '{part}'")
-                
+                raise ValueError(f"Invalid number: '{part}'")
+
         return pulses
+
+
+#
+# ===========================================================================
+# REST API server
+# ===========================================================================
+#
+# The USB device can only be used by a single operation at a time, therefore
+# every access is serialized through a global lock.
+#
+
+class IRRequestHandler(BaseHTTPRequestHandler):
+    device = None
+    lock = None
+    # Reject request bodies larger than this (basic protection against abuse)
+    MAX_BODY_SIZE = 1 * 1024 * 1024
+
+    def log_message(self, fmt, *args):
+        # Route the access log through the standard print for consistency
+        print("[API] %s - %s" % (self.address_string(), fmt % args))
+
+    def _send_json(self, code, obj):
+        body = json.dumps(obj).encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _read_json_body(self):
+        length = int(self.headers.get("Content-Length", 0))
+        if length <= 0:
+            return {}
+        if length > self.MAX_BODY_SIZE:
+            raise ValueError("Request body too large")
+        raw = self.rfile.read(length)
+        if not raw:
+            return {}
+        return json.loads(raw.decode("utf-8"))
+
+    def do_GET(self):
+        parsed = urlparse(self.path)
+        path = parsed.path.rstrip("/")
+        query = parse_qs(parsed.query)
+
+        if path in ("", "/api", "/api/help"):
+            self._send_json(200, {
+                "service": "Tiqiaa Tview IR REST API",
+                "endpoints": {
+                    "GET /api/status": "Device information",
+                    "GET /api/read?timeout=10": "Capture a single IR sequence",
+                    "POST /api/send": "Transmit an IR sequence. Body: {\"pulses\": [...], \"frequency\": 38}"
+                }
+            })
+            return
+
+        if path == "/api/status":
+            with self.lock:
+                dev = self.device.dev
+                self._send_json(200, {
+                    "manufacturer": dev.manufacturer,
+                    "product": dev.product,
+                    "serial_number": dev.serial_number,
+                    "vendor_id": f"0x{dev.idVendor:04X}",
+                    "product_id": f"0x{dev.idProduct:04X}",
+                    "default_frequency": self.device.default_frequency
+                })
+            return
+
+        if path == "/api/read":
+            try:
+                timeout = float(query.get("timeout", ["10"])[0])
+            except (ValueError, IndexError):
+                self._send_json(400, {"error": "Invalid 'timeout' parameter"})
+                return
+            with self.lock:
+                pulses = self.device.capture_once(timeout=timeout)
+            if pulses:
+                self._send_json(200, {"pulses": pulses, "count": len(pulses)})
+            else:
+                self._send_json(408, {"error": "No IR code captured within the timeout"})
+            return
+
+        self._send_json(404, {"error": "Unknown endpoint"})
+
+    def do_POST(self):
+        parsed = urlparse(self.path)
+        path = parsed.path.rstrip("/")
+
+        if path == "/api/send":
+            try:
+                data = self._read_json_body()
+            except ValueError as e:
+                self._send_json(400, {"error": f"Invalid request body: {e}"})
+                return
+            except json.JSONDecodeError:
+                self._send_json(400, {"error": "Invalid JSON"})
+                return
+
+            pulses = data.get("pulses")
+            if not isinstance(pulses, list) or not pulses:
+                self._send_json(400, {"error": "'pulses' must be a non-empty array of integers"})
+                return
+            try:
+                pulses = [int(p) for p in pulses]
+            except (ValueError, TypeError):
+                self._send_json(400, {"error": "'pulses' must contain integers only"})
+                return
+
+            frequency = data.get("frequency", self.device.default_frequency)
+            try:
+                frequency = int(frequency)
+            except (ValueError, TypeError):
+                self._send_json(400, {"error": "'frequency' must be an integer"})
+                return
+
+            with self.lock:
+                try:
+                    self.device.transmit_ir(pulses, frequency)
+                except usb.core.USBError as e:
+                    self._send_json(500, {"error": f"USB error: {e}"})
+                    return
+            self._send_json(200, {"status": "sent", "count": len(pulses), "frequency": frequency})
+            return
+
+        self._send_json(404, {"error": "Unknown endpoint"})
+
+
+def run_api_server(device, host, port):
+    IRRequestHandler.device = device
+    IRRequestHandler.lock = threading.Lock()
+    server = ThreadingHTTPServer((host, port), IRRequestHandler)
+    print(f"\n=== REST API SERVER RUNNING ON http://{host}:{port} ===")
+    print("Available endpoints:")
+    print("  GET  /api/status")
+    print("  GET  /api/read?timeout=10")
+    print("  POST /api/send   Body: {\"pulses\": [...], \"frequency\": 38}")
+    print("Press Ctrl+C to stop the server.")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nStopping the API server...")
+    finally:
+        # serve_forever() has already returned here, so only close the socket.
+        server.server_close()
+
+
+def run_menu(dev, host="127.0.0.1", port=8080):
+    while True:
+        print("\n=== MAIN MENU ===")
+        print(" R) Reading mode")
+        print(" S) Sending mode")
+        print(" T) Testing mode")
+        print(" W) Web server (REST API)")
+        print(" Q) Quit")
+
+        try:
+            choice = input("Select an option (R/S/T/W/Q): ").strip().upper()
+        except (KeyboardInterrupt, EOFError):
+            print("\nExiting the program...")
+            break
+
+        if choice in ("R", "READ", "READING"):
+            try:
+                dev.learn(testing=False)
+            except KeyboardInterrupt:
+                print("\nReturning to the main menu...")
+                dev.set_idle()
+        elif choice in ("S", "SEND", "SENDING"):
+            try:
+                dev.sending_mode()
+            except KeyboardInterrupt:
+                print("\nReturning to the main menu...")
+                dev.set_idle()
+        elif choice in ("T", "TEST", "TESTING"):
+            try:
+                dev.print_detailed_hw_info()
+                dev.learn(testing=True)
+            except KeyboardInterrupt:
+                print("\nReturning to the main menu...")
+                dev.set_idle()
+        elif choice in ("W", "WEB", "API", "SERVER"):
+            # The server blocks until stopped with Ctrl+C, then we return to the menu
+            run_api_server(dev, host, port)
+            dev.set_idle()
+        elif choice in ("Q", "QUIT", "EXIT"):
+            print("Exiting the program...")
+            break
+        else:
+            print("Invalid choice, please try again.")
 
 
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Ovládání Tiqiaa Tview USB IR transceiveru")
+    parser = argparse.ArgumentParser(description="Tiqiaa Tview USB IR transceiver control")
     parser.add_argument(
         "-f", "--frequency",
         type=int,
         default=255,
-        help="Výchozí frekvence v kHz pro vysílání (např. 255)"
+        help="Default transmit frequency in kHz (e.g. 255)"
+    )
+    parser.add_argument(
+        "-m", "--mode",
+        choices=["reading", "sending", "testing"],
+        help="Run the given mode directly without showing the menu"
+    )
+    parser.add_argument(
+        "--send",
+        metavar="SEQUENCE",
+        help="Transmit a pulse sequence once and exit (e.g. \"9000, -4500, 560, -560\")"
+    )
+    parser.add_argument(
+        "--api",
+        action="store_true",
+        help="Start the REST API server instead of the interactive menu"
+    )
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Host/interface for the REST API server (default: 127.0.0.1)"
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8080,
+        help="Port for the REST API server (default: 8080)"
     )
     args = parser.parse_args()
 
@@ -544,48 +801,42 @@ if __name__ == "__main__":
         dev = TiqiaaTview(default_frequency=args.frequency)
         dev.init()
 
-        while True:
-            print("\n=== HLAVNÍ MENU ===")
-            print("1] Scanning mode (příjem IR)")
-            print("2] Sending mode (vysílání IR)")
-            print("3] Testing mode (diagnostika a příjem s detaily)")
-            print("Q] Konec")
-            
-            try:
-                choice = input("Vyberte možnost (1-3, Q): ").strip().upper()
-            except (KeyboardInterrupt, EOFError):
-                print("\nUkončuji program...")
-                break
-
-            if choice == "1":
-                try:
-                    dev.learn(testing=False)
-                except KeyboardInterrupt:
-                    print("\nNávrat do hlavního menu...")
-                    dev.set_idle()
-            elif choice == "2":
-                try:
-                    dev.sending_mode()
-                except KeyboardInterrupt:
-                    print("\nNávrat do hlavního menu...")
-                    dev.set_idle()
-            elif choice == "3":
-                try:
-                    dev.print_detailed_hw_info()
-                    dev.learn(testing=True)
-                except KeyboardInterrupt:
-                    print("\nNávrat do hlavního menu...")
-                    dev.set_idle()
-            elif choice in ("Q", "QUIT", "EXIT"):
-                print("Ukončuji program...")
-                break
+        if args.api:
+            run_api_server(dev, args.host, args.port)
+        elif args.send is not None:
+            pulses = dev.parse_pulse_sequence(args.send)
+            if not pulses:
+                print("The provided sequence is empty.")
             else:
-                print("Neplatná volba, zkuste to znovu.")
+                dev.transmit_ir(pulses, dev.default_frequency)
+        elif args.mode == "reading":
+            try:
+                dev.learn(testing=False)
+            except KeyboardInterrupt:
+                print("\nExiting...")
+                dev.set_idle()
+        elif args.mode == "sending":
+            try:
+                dev.sending_mode()
+            except KeyboardInterrupt:
+                print("\nExiting...")
+                dev.set_idle()
+        elif args.mode == "testing":
+            try:
+                dev.print_detailed_hw_info()
+                dev.learn(testing=True)
+            except KeyboardInterrupt:
+                print("\nExiting...")
+                dev.set_idle()
+        else:
+            run_menu(dev, args.host, args.port)
 
     except RuntimeError as re:
-        print("\nCHYBA:", re)
+        print("\nERROR:", re)
+    except ValueError as ve:
+        print("\nERROR:", ve)
     except KeyboardInterrupt:
-        print("\nKonec")
+        print("\nDone")
     finally:
         if dev:
             dev.close()

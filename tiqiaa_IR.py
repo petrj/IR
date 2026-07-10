@@ -216,14 +216,34 @@ class TiqiaaTview:
         if report_id in (0x01, 0x02) and total_chunks > 1:
             payload = bytearray(first_packet[5:5+frag_len])
 
-            # Read the remaining fragments
-            for idx in range(2, total_chunks + 1):
+            # Read the remaining fragments.
+            #
+            # The firmware is slow and often delivers the trailing fragments a
+            # little late, so a single read timeout does NOT mean the frame is
+            # finished. Bailing out on the first miss (the old behaviour) chopped
+            # long IR codes off at the 56-byte fragment boundary, which produced
+            # incomplete NEC frames (e.g. only ~22 of the 32 data bits) that the
+            # target device then refused to accept.
+            #
+            # Tolerate a few timeouts per fragment, and additionally keep reading
+            # until the real end-of-frame "EN" terminator has arrived.
+            remaining = total_chunks - 1
+            max_timeouts = 4
+            timeouts = 0
+            while remaining > 0:
                 next_packet = self.read_data()
                 if next_packet and len(next_packet) >= 5:
                     next_len = next_packet[1] - 3
                     payload.extend(next_packet[5:5+next_len])
+                    remaining -= 1
+                    timeouts = 0
+                    # Stop as soon as the frame is complete.
+                    if b'EN' in payload:
+                        break
                 else:
-                    break
+                    timeouts += 1
+                    if timeouts >= max_timeouts:
+                        break
             return bytes(payload)
         else:
             # If it is only a single fragment, return its payload
@@ -381,10 +401,13 @@ class TiqiaaTview:
             if testing:
                 print(f"[TESTING] Found 'EN' terminator at position {end_pos}. IR data length: {len(ir_data)} B")
         except ValueError:
-            # If 'EN' happens to be missing (it should not), take the rest
-            ir_data = payload[ir_data_start:]
+            # The 'EN' terminator is missing, which means the frame was NOT fully
+            # received/assembled (a truncated capture). Accepting the partial data
+            # here would emit an incomplete IR code that the target device rejects,
+            # so treat it as a failed capture and let the caller poll again.
             if testing:
-                print(f"[TESTING] Warning: 'EN' terminator not found. Taking all remaining data ({len(ir_data)} B)")
+                print("[TESTING] 'EN' terminator not found -> incomplete frame, ignoring this capture.")
+            return None
 
         # 1. Merge consecutive bytes carrying the same state (ON/OFF)
         merged_pulses = []

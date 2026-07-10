@@ -215,15 +215,52 @@ php -m | grep -i sqlite   # should print: pdo_sqlite  sqlite3
    ```bash
    python3 tiqiaa_IR.py --api --host 127.0.0.1 --port 8080
    ```
-2. Launch the web GUI:
-   ```bash
-   ./serve.sh                 # → http://127.0.0.1:8000
-   # or:  php -S 127.0.0.1:8000
-   ```
+2. Open the web GUI in your browser:
 
-The SQLite database (`database/ir_remote.sqlite`) is created automatically on
-first launch. All backend URLs, timeouts and the remote grid size live in
-[config.php](config.php).
+   <http://localhost/IR/Studio/index.php>
+
+The SQLite database (`Studio/database/ir_remote.sqlite`) is created
+automatically on first launch. All backend URLs, timeouts and the remote grid
+size live in [config.php](Studio/config.php).
+
+### Apache2: directory permissions for `Studio/`
+
+When the GUI is served by **Apache** (mod_php or PHP-FPM) instead of PHP's
+built-in server, PHP runs as the web-server user (`www-data` on Debian/Ubuntu).
+That user must be able to **create and write** the SQLite database, so the
+`Studio/database/` directory needs the right ownership and permissions.
+
+```bash
+# 1) Make sure Apache's PHP can load the SQLite driver (once), then reload it.
+#    A freshly installed extension is NOT active until Apache is reloaded.
+sudo apt install -y php8.2-sqlite3
+sudo systemctl reload apache2
+
+# 2) Give the web-server user ownership of the whole app directory.
+sudo chown -R www-data:www-data /var/www/html/IR/Studio
+
+# 3) Ensure the database directory is writable by Apache. SQLite also writes
+#    -journal / -wal side files, so the DIRECTORY itself (not just the .sqlite
+#    file) must be writable.
+sudo chmod 775 /var/www/html/IR/Studio/database
+```
+
+If you would rather keep your own user as the owner, grant access to `www-data`
+through the group instead:
+
+```bash
+sudo chgrp -R www-data /var/www/html/IR/Studio/database
+sudo chmod -R g+rwX  /var/www/html/IR/Studio/database
+```
+
+> [!IMPORTANT]
+> * API returns `{"error":"could not find driver"}` → the SQLite PDO extension
+>   is missing for Apache's PHP. Install `php8.2-sqlite3` and **reload Apache**
+>   (`sudo systemctl reload apache2`).
+> * API returns *"unable to open database file"* or *"attempt to write a
+>   readonly database"* → the `Studio/database/` directory is not writable by
+>   `www-data`. Fix it with the `chown` / `chmod` commands above.
+
 
 ---
 

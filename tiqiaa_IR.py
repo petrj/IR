@@ -270,9 +270,35 @@ class TiqiaaTview:
         self.read_data()
 
     #
+    # Correct the short leading AGC header mark.
+    #
+    # The IR receiver's automatic gain control has not settled at the very start
+    # of a transmission, so the FIRST burst is always measured shorter than it
+    # really is (e.g. ~6944 us instead of the NEC-standard 9000 us). A too-short
+    # header makes many devices reject the replayed code, so we snap a NEC-style
+    # leader (short mark followed by a ~4500 us space) back to its nominal length.
+    #
+    @staticmethod
+    def fix_leading_mark(pulses, verbose=False):
+        NEC_LEADER_MARK_US = 9000
+        if (len(pulses) >= 2
+                and pulses[0] > 0
+                and pulses[1] < 0
+                and 3500 <= abs(pulses[1]) <= 5500   # NEC ~4500 us leader space
+                and pulses[0] < 8000):               # measured shorter than it should be
+            if verbose:
+                print(f"[INFO] Correcting short leading mark {pulses[0]} us -> {NEC_LEADER_MARK_US} us")
+            pulses[0] = NEC_LEADER_MARK_US
+        return pulses
+
+    #
     # send IR data (transmit)
     #
     def transmit_ir(self, pulse_array, frequency_khz=38):
+        # Repair a short leading header that the receiver under-measured at
+        # capture time, so previously stored codes also transmit reliably.
+        pulse_array = self.fix_leading_mark(list(pulse_array))
+
         # Activate transmit mode right before sending the data
         self.start_transmit()
 
@@ -397,6 +423,9 @@ class TiqiaaTview:
             if testing:
                 print("[TESTING] Too few valid pulses (< 4), ignoring the code.")
             return None
+
+        # 3. Correct the short leading AGC header mark (see fix_leading_mark()).
+        self.fix_leading_mark(pulses, verbose=testing or print_result)
 
         pulse_str = ", ".join(map(str, pulses))
 

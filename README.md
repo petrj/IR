@@ -180,7 +180,54 @@ requests.post(f"{BASE}/api/send", json={"pulses": pulses, "frequency": 38})
 
 ---
 
-## 🔗 Useful resources
+## �️ Web GUI (IR Remote Studio)
+
+A standalone **PHP + SQLite** web application (`index.php`) provides a graphical
+editor for building virtual remote controls. It talks **only** to the Python
+REST API described above — it never touches the USB hardware directly.
+
+### Requirements
+
+* **PHP 8+** (CLI is enough for the built-in server)
+* **php-sqlite3** – SQLite (PDO) driver, used to store devices and buttons
+* **php-curl** – *optional*; the app automatically falls back to PHP streams if it is missing
+
+Install them on Debian/Ubuntu:
+
+```bash
+sudo apt install -y php8.2-cli php8.2-sqlite3 php8.2-curl
+```
+
+> [!IMPORTANT]
+> `php8.2-sqlite3` is **required** — without it the application cannot open its
+> database and will fail to start. If your distribution ships a different PHP
+> version, replace `8.2` with the version reported by `php -v`.
+
+Verify the extension is active:
+
+```bash
+php -m | grep -i sqlite   # should print: pdo_sqlite  sqlite3
+```
+
+### Running
+
+1. Start the IR hardware backend (in another terminal):
+   ```bash
+   python3 tiqiaa_IR.py --api --host 127.0.0.1 --port 8080
+   ```
+2. Launch the web GUI:
+   ```bash
+   ./serve.sh                 # → http://127.0.0.1:8000
+   # or:  php -S 127.0.0.1:8000
+   ```
+
+The SQLite database (`database/ir_remote.sqlite`) is created automatically on
+first launch. All backend URLs, timeouts and the remote grid size live in
+[config.php](config.php).
+
+---
+
+## �🔗 Useful resources
 
 * [Reverse engineering of the Tiqiaa Tview protocol (Habr)](https://habr.com/ru/articles/494800/) – A detailed analysis and breakdown of the USB communication and protocol of this IR transceiver.
 

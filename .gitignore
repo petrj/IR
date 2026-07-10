@@ -1,2 +1,6 @@
 doc/*
 __pycache__/*
+
+# SQLite database (created automatically on first run)
+Studio/database/*.sqlite
+Studio/database/*.sqlite-journal

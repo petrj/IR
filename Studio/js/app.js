@@ -254,6 +254,35 @@ function parsePulses(text) {
     return { pulses };
 }
 
+/**
+ * Parse a hand-edited IR pulse sequence. Unlike parsePulses() this accepts
+ * SIGNED whole numbers, because a real IR signal alternates marks (positive =
+ * IR on) and spaces (negative = IR off). Commas, spaces and newlines all work
+ * as separators so the field is forgiving to edit.
+ */
+function parseSignedPulses(text) {
+    const trimmed = (text || '').trim();
+    if (!trimmed) {
+        return { error: 'The IR pulse sequence cannot be empty.' };
+    }
+    const parts = trimmed.split(/[\s,]+/).filter((s) => s !== '');
+    if (parts.length === 0) {
+        return { error: 'No numbers found. Separate values with commas.' };
+    }
+    const pulses = [];
+    for (const p of parts) {
+        if (!/^-?\d+$/.test(p)) {
+            return { error: `"${p}" is not a whole number.` };
+        }
+        const n = Number(p);
+        if (!Number.isSafeInteger(n) || n === 0) {
+            return { error: `"${p}" is out of range. Use non-zero whole numbers.` };
+        }
+        pulses.push(n);
+    }
+    return { pulses };
+}
+
 async function addManual() {
     if (!currentDevice()) {
         const create = await confirmDialog({
@@ -374,7 +403,9 @@ function openButtonDialog(draft) {
         hint.hidden = false;
     }
 
-    document.getElementById('btn-pulses').textContent = JSON.stringify(draft.pulses);
+    document.getElementById('btn-pulses').value = (draft.pulses || []).join(', ');
+    const pulseErr = document.getElementById('btn-pulses-error');
+    if (pulseErr) pulseErr.hidden = true;
     openDialog('button-dialog');
     setTimeout(() => document.getElementById('btn-name').focus(), 50);
 }
@@ -388,6 +419,18 @@ function wireButtonDialog() {
         const d = state.draft;
         const [w, h] = document.getElementById('btn-size').value.split('x').map(Number);
 
+        // Validate the (possibly hand-edited) IR pulse sequence before saving.
+        const pulseErr = document.getElementById('btn-pulses-error');
+        const { pulses, error } = parseSignedPulses(document.getElementById('btn-pulses').value);
+        if (error) {
+            pulseErr.textContent = error;
+            pulseErr.hidden = false;
+            document.getElementById('btn-pulses-details').open = true;
+            return;
+        }
+        pulseErr.hidden = true;
+        d.pulses = pulses;
+
         const payload = {
             device_id: state.currentDeviceId,
             name: document.getElementById('btn-name').value.trim() || 'Button',
@@ -395,7 +438,7 @@ function wireButtonDialog() {
             color: document.getElementById('btn-color').value,
             width: w,
             height: h,
-            pulse_data: d.pulses,
+            pulse_data: pulses,
         };
 
         // Position already known (editing an existing button, size unchanged & fits).

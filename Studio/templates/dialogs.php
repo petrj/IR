@@ -73,9 +73,15 @@
             <p class="field__value" id="btn-placement-value" hidden></p>
         </div>
 
-        <details class="field">
+        <details class="field" id="btn-pulses-details">
             <summary class="field__label">IR pulse sequence</summary>
-            <pre class="pulse-view" id="btn-pulses"></pre>
+            <p class="field__hint">
+                Whole numbers separated by commas. Positive = mark (IR on),
+                negative = space (IR off). Editing this changes the exact signal that is transmitted.
+            </p>
+            <textarea id="btn-pulses" class="input input--area" rows="6"
+                autocomplete="off" spellcheck="false"></textarea>
+            <p class="field__error" id="btn-pulses-error" hidden></p>
         </details>
 
         <div class="dialog__actions">

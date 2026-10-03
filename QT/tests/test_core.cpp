@@ -1,12 +1,14 @@
 #include "RingBuffer.h"
 #include "IrProtocol.h"
 #include "IrUsbTransceiver.h"
+#include "SignalStorage.h"
 
 #include <iostream>
 #include <cassert>
 #include <vector>
 #include <string>
 #include <cmath>
+#include <cstdio>
 
 void testRingBuffer() {
     std::cout << "[TEST] RingBuffer..." << std::endl;
@@ -157,6 +159,75 @@ void testIrUsbTransceiverClass() {
     std::cout << "  PASSED: IrUsbTransceiver lifecycle" << std::endl;
 }
 
+void testSignalStorageAndMatching() {
+    std::cout << "[TEST] SignalStorage and findMatchingSignal..." << std::endl;
+
+    // Test default storage path
+    std::string defaultPath = ir::SignalStorage::getDefaultStoragePath();
+    assert(!defaultPath.empty());
+    assert(defaultPath.find("saved_ir_signals.json") != std::string::npos);
+
+    // Test file storage with a temporary path
+    std::string testPath = "/tmp/test_ir_storage_unit_test.json";
+    std::remove(testPath.c_str());
+
+    {
+        ir::SignalStorage storage(testPath);
+        assert(storage.count() == 0);
+
+        ir::SavedIrSignal sig1;
+        sig1.name = "Test TV Power";
+        sig1.protocol = "NEC";
+        sig1.rawHex = "0xE718FF00";
+        sig1.frequency_khz = 38;
+        sig1.pulses = ir::IrProtocol::encodeNec(0x00, 0x18);
+        sig1.timestamp = "2026-10-03 21:00:00";
+
+        storage.addSignal(sig1);
+        assert(storage.count() == 1);
+        assert(storage.getSignals()[0].name == "Test TV Power");
+    }
+
+    // Verify reload from file
+    {
+        ir::SignalStorage storage2(testPath);
+        assert(storage2.count() == 1);
+        assert(storage2.getSignals()[0].name == "Test TV Power");
+
+        // 1. Match by exact pulses
+        auto necPulses = ir::IrProtocol::encodeNec(0x00, 0x18);
+        auto matchExact = storage2.findMatchingSignal(necPulses);
+        assert(matchExact.has_value());
+        assert(matchExact->name == "Test TV Power");
+
+        // 2. Match by decoded IrSignal
+        ir::IrSignal incoming;
+        incoming.pulses = necPulses;
+        incoming.frequency_khz = 38;
+        auto matchSig = storage2.findMatchingSignal(incoming);
+        assert(matchSig.has_value());
+        assert(matchSig->name == "Test TV Power");
+
+        // 3. Match with timing jitter (tolerant pulse sequence match)
+        std::vector<int> jitteredPulses = necPulses;
+        for (size_t i = 2; i < jitteredPulses.size() - 1; ++i) {
+            if (jitteredPulses[i] > 0) jitteredPulses[i] += 40;
+            else jitteredPulses[i] -= 40;
+        }
+        auto matchJitter = storage2.findMatchingSignal(jitteredPulses);
+        assert(matchJitter.has_value());
+        assert(matchJitter->name == "Test TV Power");
+
+        // 4. Different signal should not match
+        auto otherPulses = ir::IrProtocol::encodeNec(0x05, 0x99);
+        auto matchOther = storage2.findMatchingSignal(otherPulses);
+        assert(!matchOther.has_value());
+    }
+
+    std::remove(testPath.c_str());
+    std::cout << "  PASSED: SignalStorage and findMatchingSignal" << std::endl;
+}
+
 int main() {
     std::cout << "==========================================" << std::endl;
     std::cout << " Running IR Core Engine Unit Tests" << std::endl;
@@ -168,6 +239,7 @@ int main() {
     testTiqiaaPayloadEncodingAndDecoding();
     testNecProtocolCodec();
     testIrUsbTransceiverClass();
+    testSignalStorageAndMatching();
 
     std::cout << "==========================================" << std::endl;
     std::cout << " ALL IR CORE TESTS PASSED SUCCESSFULLY! " << std::endl;

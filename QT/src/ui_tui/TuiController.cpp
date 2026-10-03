@@ -39,7 +39,7 @@ static std::string currentTimestamp() {
 }
 
 TuiController::TuiController(std::shared_ptr<IrUsbTransceiver> transceiver)
-    : m_transceiver(std::move(transceiver)), m_storage("saved_ir_signals.json") {
+    : m_transceiver(std::move(transceiver)), m_storage() {
     if (!m_transceiver) {
         m_transceiver = std::make_shared<IrUsbTransceiver>(38);
     }
@@ -69,10 +69,13 @@ void TuiController::printMenu() const {
     std::cout << "Select option (1-7, Q): " << std::flush;
 }
 
-void TuiController::displaySignalDetails(const IrSignal& signal, const std::string& title) {
+void TuiController::displaySignalDetails(const IrSignal& signal, const std::string& title, const std::string& identifiedName) {
     std::cout << "\n+------------------------------------------------------\n";
     std::cout << "| " << title << "\n";
     std::cout << "+------------------------------------------------------\n";
+    if (!identifiedName.empty()) {
+        std::cout << "| Signal Name: " << identifiedName << " [SAVED]\n";
+    }
     std::cout << "| Pulse Count: " << signal.pulses.size() << "\n";
     std::cout << "| Frequency:   " << static_cast<int>(signal.frequency_khz) << " kHz\n";
 
@@ -91,6 +94,58 @@ void TuiController::displaySignalDetails(const IrSignal& signal, const std::stri
     std::cout << "+------------------------------------------------------\n";
 }
 
+void TuiController::handleReceivedSignal(const IrSignal& sig, const std::string& title, bool promptIfNew) {
+    m_lastCaptured = sig;
+    auto matched = m_storage.findMatchingSignal(sig);
+    if (matched) {
+        displaySignalDetails(sig, title, matched->name);
+        std::cout << "[IDENTIFIED] Signal already in library: \"" << matched->name
+                  << "\" (" << matched->protocol << ")\n";
+    } else {
+        displaySignalDetails(sig, title, "");
+        std::cout << "[INFO] Signal is not in saved library.\n";
+        if (promptIfNew) {
+            std::cout << "Enter signal name to save (press Enter for default name): " << std::flush;
+            flushTerminalInput();
+            std::string name;
+            std::getline(std::cin, name);
+
+            size_t first = name.find_first_not_of(" \t\r\n");
+            if (first != std::string::npos) {
+                size_t last = name.find_last_not_of(" \t\r\n");
+                name = name.substr(first, last - first + 1);
+            } else {
+                name.clear();
+            }
+
+            if (name.empty()) {
+                name = "IR_Signal_" + std::to_string(m_storage.count() + 1);
+            }
+
+            SavedIrSignal saved;
+            saved.name = name;
+            saved.frequency_khz = sig.frequency_khz;
+            saved.pulses = sig.pulses;
+            saved.timestamp = currentTimestamp();
+
+            DecodedCode necCode;
+            if (IrProtocol::decodeNec(saved.pulses, necCode)) {
+                saved.protocol = "NEC";
+                std::ostringstream ss;
+                ss << "0x" << std::hex << std::uppercase << std::setw(8) << std::setfill('0') << necCode.rawValue;
+                saved.rawHex = ss.str();
+            } else {
+                saved.protocol = "Raw";
+                saved.rawHex = "N/A";
+            }
+
+            m_storage.addSignal(saved);
+            std::cout << "[SUCCESS] Automatically saved new signal \"" << name
+                      << "\" to " << m_storage.getStoragePath() << "!\n";
+        }
+    }
+}
+
 bool TuiController::captureOnce(float timeoutSeconds) {
     if (!m_transceiver->isConnected()) {
         std::cout << "[INFO] Hardware not connected. Attempting to open device...\n";
@@ -106,9 +161,7 @@ bool TuiController::captureOnce(float timeoutSeconds) {
 
     IrSignal sig;
     if (m_transceiver->captureOnce(sig, timeoutSeconds)) {
-        m_lastCaptured = sig;
-        displaySignalDetails(sig, "NEW IR SIGNAL CAPTURED");
-        std::cout << "[TIP] Select Option 3 to save this signal to file.\n";
+        handleReceivedSignal(sig, "NEW IR SIGNAL CAPTURED", true);
         return true;
     } else {
         std::cout << "[TIMEOUT] No IR signal detected within " << timeoutSeconds << " seconds.\n";
@@ -130,8 +183,7 @@ void TuiController::startContinuousMonitor() {
     std::cout << "=======================================================\n";
 
     m_transceiver->setSignalReceivedCallback([this](const IrSignal& sig) {
-        m_lastCaptured = sig;
-        displaySignalDetails(sig, "SIGNAL CAPTURED (CONTINUOUS MONITOR)");
+        handleReceivedSignal(sig, "SIGNAL CAPTURED (CONTINUOUS MONITOR)", false);
     });
 
     m_transceiver->startBackgroundPolling();
@@ -188,6 +240,7 @@ void TuiController::listSavedSignals() {
     }
 
     std::cout << "\n================ SAVED SIGNALS (" << count << ") ================\n";
+    std::cout << "Storage location: " << m_storage.getStoragePath() << "\n";
     std::cout << std::setfill(' ') << std::left << std::setw(4) << "#"
               << std::setw(24) << "Name"
               << std::setw(10) << "Protocol"
@@ -231,52 +284,77 @@ void TuiController::transmitSavedSignal() {
             std::cout << "  " << (i + 1) << ") " << list[i].name
                       << " (" << list[i].protocol << ", " << list[i].pulses.size() << " pulses)\n";
         }
+    } else {
+        std::cout << "  (No saved signals found in " << m_storage.getStoragePath() << ")\n";
     }
-    std::cout << "Select signal number to transmit (or 'M' for manual pulses): " << std::flush;
+    std::cout << "Select signal number or name to transmit (or 'M' for manual pulses): " << std::flush;
 
     std::string choice;
     std::getline(std::cin, choice);
     if (choice.empty()) return;
+
+    size_t first = choice.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos) return;
+    size_t last = choice.find_last_not_of(" \t\r\n");
+    choice = choice.substr(first, last - first + 1);
 
     if (choice == "M" || choice == "m") {
         transmitManualSequence();
         return;
     }
 
+    std::vector<int> pulsesToSend;
+    uint8_t freq = 38;
+    std::string name;
+    bool found = false;
+
     try {
         int idx = std::stoi(choice);
-        std::vector<int> pulsesToSend;
-        uint8_t freq = 38;
-        std::string name;
-
         if (idx == 0) {
             pulsesToSend = DEFAULT_SHARP_PULSES;
             name = "Sharp Repro EQ Preset";
+            found = true;
         } else if (idx > 0 && static_cast<size_t>(idx) <= count) {
             const auto& sig = m_storage.getSignals()[idx - 1];
             pulsesToSend = sig.pulses;
             freq = sig.frequency_khz;
             name = sig.name;
-        } else {
-            std::cout << "[ERROR] Invalid selection.\n";
-            return;
-        }
-
-        if (!m_transceiver->isConnected()) {
-            if (!m_transceiver->openDevice()) {
-                std::cout << "[ERROR] Cannot transmit: Hardware device not found.\n";
-                return;
-            }
-        }
-
-        std::cout << "[INFO] Transmitting '" << name << "' (" << pulsesToSend.size() << " pulses)...\n";
-        if (m_transceiver->transmitIr(pulsesToSend, freq)) {
-            std::cout << "[SUCCESS] Transmission complete!\n";
-        } else {
-            std::cout << "[ERROR] Transmission failed.\n";
+            found = true;
         }
     } catch (...) {
-        std::cout << "[ERROR] Invalid input.\n";
+        // Not a number, check by name below
+    }
+
+    if (!found && count > 0) {
+        const auto& list = m_storage.getSignals();
+        for (const auto& sig : list) {
+            if (sig.name == choice) {
+                pulsesToSend = sig.pulses;
+                freq = sig.frequency_khz;
+                name = sig.name;
+                found = true;
+                break;
+            }
+        }
+    }
+
+    if (!found) {
+        std::cout << "[ERROR] Invalid selection: '" << choice << "'.\n";
+        return;
+    }
+
+    if (!m_transceiver->isConnected()) {
+        if (!m_transceiver->openDevice()) {
+            std::cout << "[ERROR] Cannot transmit: Hardware device not found.\n";
+            return;
+        }
+    }
+
+    std::cout << "[INFO] Transmitting '" << name << "' (" << pulsesToSend.size() << " pulses)...\n";
+    if (m_transceiver->transmitIr(pulsesToSend, freq)) {
+        std::cout << "[SUCCESS] Transmission complete!\n";
+    } else {
+        std::cout << "[ERROR] Transmission failed.\n";
     }
 }
 
@@ -330,9 +408,43 @@ void TuiController::printHardwareInfo() {
 }
 
 void TuiController::simulateCapture() {
-    std::cout << "\n[SIMULATOR] Generating sample NEC IR Signal (Volume Up: Addr 0x00, Cmd 0x18)...\n";
+    std::cout << "\n[SIMULATOR] Simulation Presets:\n";
+    std::cout << "  1) Sample: Volume Up (Addr 0x00, Cmd 0x18)\n";
+    std::cout << "  2) Sample: Ceiling Fan (Addr 0x01, Cmd 0x5A)\n";
+    std::cout << "  3) Custom NEC Code (specify Address & Command)\n";
+    std::cout << "Select simulation preset (1-3, default 1): " << std::flush;
+
+    std::string choice;
+    std::getline(std::cin, choice);
+
     uint32_t addr = 0x00;
     uint32_t cmd = 0x18;
+
+    if (choice == "2") {
+        addr = 0x01;
+        cmd = 0x5A;
+    } else if (choice == "3") {
+        std::cout << "Enter Address in hex or dec (e.g. 0x02 or 2): " << std::flush;
+        std::string addrStr;
+        std::getline(std::cin, addrStr);
+        std::cout << "Enter Command in hex or dec (e.g. 0x20 or 32): " << std::flush;
+        std::string cmdStr;
+        std::getline(std::cin, cmdStr);
+        try {
+            addr = std::stoul(addrStr, nullptr, 0);
+            cmd = std::stoul(cmdStr, nullptr, 0);
+        } catch (...) {
+            std::cout << "[WARN] Invalid input, defaulting to Addr 0x02, Cmd 0x20.\n";
+            addr = 0x02;
+            cmd = 0x20;
+        }
+    }
+
+    std::cout << "\n[SIMULATOR] Generating NEC IR Signal (Addr 0x"
+              << std::hex << std::uppercase << std::setw(2) << std::setfill('0') << addr
+              << ", Cmd 0x" << std::setw(2) << std::setfill('0') << cmd
+              << std::dec << ")...\n";
+
     std::vector<int> necPulses = IrProtocol::encodeNec(addr, cmd);
 
     IrSignal simSig;
@@ -340,10 +452,7 @@ void TuiController::simulateCapture() {
     simSig.frequency_khz = 38;
     simSig.timestamp = std::chrono::system_clock::now();
 
-    m_lastCaptured = simSig;
-    displaySignalDetails(simSig, "SIMULATED IR CODE GENERATED");
-    std::cout << "[SUCCESS] Simulated signal stored as 'Last Captured'.\n";
-    std::cout << "[TIP] Select Option 3 to save this signal to your JSON library!\n";
+    handleReceivedSignal(simSig, "SIMULATED IR CODE GENERATED", true);
 }
 
 void TuiController::runInteractiveLoop() {

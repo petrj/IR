@@ -20,7 +20,9 @@ struct SavedIrSignal {
 
 class SignalStorage {
 public:
-    explicit SignalStorage(std::string storagePath = "saved_ir_signals.json");
+    static std::string getDefaultStoragePath();
+
+    explicit SignalStorage(std::string storagePath = "");
 
     bool loadFromFile(const std::string& path = "");
     bool saveToFile(const std::string& path = "") const;
@@ -33,6 +35,11 @@ public:
     std::optional<SavedIrSignal> getSignal(size_t index) const;
     size_t count() const;
     const std::string& getStoragePath() const;
+
+    // Matches an incoming signal against stored signals.
+    // Returns matching SavedIrSignal if found, or std::nullopt.
+    std::optional<SavedIrSignal> findMatchingSignal(const IrSignal& signal) const;
+    std::optional<SavedIrSignal> findMatchingSignal(const std::vector<int>& pulses, uint8_t frequency_khz = 38) const;
 
 private:
     std::string m_storagePath;

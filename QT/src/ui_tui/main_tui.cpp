@@ -13,7 +13,7 @@ int main(int argc, char* argv[]) {
                       << "Options:\n"
                       << "  --read, -r          Capture a single IR signal and exit\n"
                       << "  --list, -l          List all saved IR signals\n"
-                      << "  --send <pulses>     Transmit pulse sequence (e.g. \"9000, -4500, 560, -560\")\n"
+                      << "  --send, -s [arg]    Transmit IR signal (offers saved signals, or specify pulses/name)\n"
                       << "  --info, -i          Print USB hardware diagnostics\n"
                       << "  --help, -h          Show this help message\n"
                       << "\nRun without arguments to start the interactive console menu.\n";
@@ -26,18 +26,54 @@ int main(int argc, char* argv[]) {
         } else if (arg == "--info" || arg == "-i") {
             controller.printHardwareInfo();
             return 0;
-        } else if (arg == "--send" && argc > 2) {
-            std::string pulseStr = argv[2];
-            auto pulses = ir::IrProtocol::parsePulseSequence(pulseStr);
-            if (pulses.empty()) {
-                std::cerr << "Invalid pulse sequence provided.\n";
-                return 1;
+        } else if (arg == "--send" || arg == "-s") {
+            if (argc > 2) {
+                std::string target = argv[2];
+                auto pulses = ir::IrProtocol::parsePulseSequence(target);
+                uint8_t freq = 38;
+                std::string sigName = "Pulse Sequence";
+                if (pulses.empty()) {
+                    const auto& list = controller.getStorage().getSignals();
+                    bool found = false;
+                    try {
+                        size_t idx = std::stoul(target);
+                        if (idx >= 1 && idx <= list.size()) {
+                            pulses = list[idx - 1].pulses;
+                            freq = list[idx - 1].frequency_khz;
+                            sigName = list[idx - 1].name;
+                            found = true;
+                        }
+                    } catch (...) {}
+
+                    if (!found) {
+                        for (const auto& s : list) {
+                            if (s.name == target) {
+                                pulses = s.pulses;
+                                freq = s.frequency_khz;
+                                sigName = s.name;
+                                found = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!found) {
+                        std::cerr << "[ERROR] '" << target << "' is not a valid pulse sequence or saved signal.\n";
+                        controller.listSavedSignals();
+                        return 1;
+                    }
+                }
+
+                if (!transceiver->openDevice()) {
+                    std::cerr << "[ERROR] Hardware device not available.\n";
+                    return 1;
+                }
+                std::cout << "[INFO] Transmitting '" << sigName << "' (" << pulses.size() << " pulses)...\n";
+                return transceiver->transmitIr(pulses, freq) ? 0 : 1;
+            } else {
+                controller.transmitSavedSignal();
+                return 0;
             }
-            if (!transceiver->openDevice()) {
-                std::cerr << "Hardware device not available.\n";
-                return 1;
-            }
-            return transceiver->transmitIr(pulses, 38) ? 0 : 1;
         }
     }
 

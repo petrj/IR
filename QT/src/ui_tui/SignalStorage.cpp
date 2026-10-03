@@ -4,6 +4,8 @@
 #include <iostream>
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
+#include <iomanip>
 
 namespace ir {
 
@@ -41,10 +43,39 @@ std::string SavedIrSignal::toJsonString() const {
     oss << "    }";
     return oss.str();
 }
+ 
+std::string SignalStorage::getDefaultStoragePath() {
+    const char* home = std::getenv("HOME");
+    if (home && home[0] != '\0') {
+        return std::string(home) + "/saved_ir_signals.json";
+    }
+#if defined(_WIN32)
+    const char* userProfile = std::getenv("USERPROFILE");
+    if (userProfile && userProfile[0] != '\0') {
+        return std::string(userProfile) + "\\saved_ir_signals.json";
+    }
+    const char* homeDrive = std::getenv("HOMEDRIVE");
+    const char* homePath = std::getenv("HOMEPATH");
+    if (homeDrive && homePath) {
+        return std::string(homeDrive) + std::string(homePath) + "\\saved_ir_signals.json";
+    }
+#endif
+    return "saved_ir_signals.json";
+}
 
 SignalStorage::SignalStorage(std::string storagePath)
     : m_storagePath(std::move(storagePath)) {
-    loadFromFile();
+    if (m_storagePath.empty()) {
+        m_storagePath = getDefaultStoragePath();
+    }
+    if (!loadFromFile()) {
+        // Fallback: If default path file didn't exist, try local saved_ir_signals.json
+        if (m_storagePath != "saved_ir_signals.json") {
+            if (loadFromFile("saved_ir_signals.json")) {
+                saveToFile();
+            }
+        }
+    }
 }
 
 const std::string& SignalStorage::getStoragePath() const {
@@ -203,6 +234,112 @@ bool SignalStorage::loadFromFile(const std::string& path) {
     }
 
     return true;
+}
+
+std::optional<SavedIrSignal> SignalStorage::findMatchingSignal(const IrSignal& signal) const {
+    return findMatchingSignal(signal.pulses, signal.frequency_khz);
+}
+
+static bool hexStringsMatch(const std::string& h1, const std::string& h2) {
+    if (h1.empty() || h2.empty() || h1 == "N/A" || h2 == "N/A") {
+        return false;
+    }
+    std::string s1 = h1;
+    std::string s2 = h2;
+    if (s1.rfind("0x", 0) == 0 || s1.rfind("0X", 0) == 0) s1 = s1.substr(2);
+    if (s2.rfind("0x", 0) == 0 || s2.rfind("0X", 0) == 0) s2 = s2.substr(2);
+    if (s1.size() != s2.size()) return false;
+    for (size_t i = 0; i < s1.size(); ++i) {
+        if (std::tolower(static_cast<unsigned char>(s1[i])) != std::tolower(static_cast<unsigned char>(s2[i]))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+std::optional<SavedIrSignal> SignalStorage::findMatchingSignal(const std::vector<int>& pulses, uint8_t frequency_khz) const {
+    (void)frequency_khz;
+    if (pulses.empty() || m_signals.empty()) {
+        return std::nullopt;
+    }
+
+    std::vector<int> normalizedIncoming = pulses;
+    IrProtocol::fixLeadingMark(normalizedIncoming);
+
+    DecodedCode incomingNec;
+    bool isIncomingNec = IrProtocol::decodeNec(normalizedIncoming, incomingNec);
+
+    std::string incomingHexStr;
+    if (isIncomingNec) {
+        std::ostringstream ss;
+        ss << "0x" << std::hex << std::uppercase << std::setw(8) << std::setfill('0') << incomingNec.rawValue;
+        incomingHexStr = ss.str();
+    }
+
+    for (const auto& saved : m_signals) {
+        std::vector<int> savedNormalized = saved.pulses;
+        IrProtocol::fixLeadingMark(savedNormalized);
+
+        // 1. Check NEC decoded code match
+        if (isIncomingNec) {
+            // Check rawHex directly if present
+            if (!saved.rawHex.empty() && saved.rawHex != "N/A") {
+                if (hexStringsMatch(saved.rawHex, incomingHexStr)) {
+                    return saved;
+                }
+            }
+
+            // Or decode saved pulses to NEC
+            DecodedCode savedNec;
+            if (IrProtocol::decodeNec(savedNormalized, savedNec)) {
+                if (savedNec.rawValue == incomingNec.rawValue && savedNec.isRepeat == incomingNec.isRepeat) {
+                    return saved;
+                }
+            }
+        }
+
+        // 2. Exact pulse match
+        if (saved.pulses == pulses || saved.pulses == normalizedIncoming || savedNormalized == normalizedIncoming) {
+            return saved;
+        }
+
+        // 3. Timing-tolerant pulse sequence match
+        if (savedNormalized.size() >= 4 && normalizedIncoming.size() >= 4) {
+            int lenDiff = std::abs(static_cast<int>(savedNormalized.size()) - static_cast<int>(normalizedIncoming.size()));
+            if (lenDiff <= 2) {
+                size_t compLen = std::min(savedNormalized.size(), normalizedIncoming.size());
+                bool match = true;
+                for (size_t i = 0; i < compLen; ++i) {
+                    int p1 = normalizedIncoming[i];
+                    int p2 = savedNormalized[i];
+
+                    // Mark vs space must match
+                    if ((p1 > 0) != (p2 > 0)) {
+                        match = false;
+                        break;
+                    }
+
+                    // Trailing space check (> 10000 us)
+                    if (i == compLen - 1 && p1 < -10000 && p2 < -10000) {
+                        continue;
+                    }
+
+                    int diff = std::abs(std::abs(p1) - std::abs(p2));
+                    int maxVal = std::max(std::abs(p1), std::abs(p2));
+                    int tol = std::max(200, static_cast<int>(0.25f * maxVal));
+                    if (diff > tol) {
+                        match = false;
+                        break;
+                    }
+                }
+                if (match) {
+                    return saved;
+                }
+            }
+        }
+    }
+
+    return std::nullopt;
 }
 
 } // namespace ir

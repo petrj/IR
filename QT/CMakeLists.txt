@@ -44,6 +44,12 @@ find_package(Threads REQUIRED)
 # IR Core Unit Test Executable
 add_executable(test_ir_core
     tests/test_core.cpp
+    src/ui_tui/SignalStorage.h
+    src/ui_tui/SignalStorage.cpp
+)
+
+target_include_directories(test_ir_core PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/ui_tui
 )
 
 target_link_libraries(test_ir_core PRIVATE

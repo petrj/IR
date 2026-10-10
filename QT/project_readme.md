@@ -8,7 +8,7 @@ This project replaces legacy Python-based USB drivers with a lightweight, native
 
 ## 🏗 Architecture Overview
 
-The system is decoupled into a shared core library (`ir_core`) consumed by all frontends and services:
+The system is decoupled into a shared core library ([`ir_core`](src/core/README.md)) consumed by all frontends and services:
 
 ```
                           +-----------------------------------+
@@ -54,6 +54,7 @@ IR-QtApp/
 ├── README.md                     # Project documentation
 ├── src/
 │   ├── core/                     # Shared static library (ir_core)
+│   │   ├── README.md             # Library documentation & API reference
 │   │   ├── IrUsbTransceiver.cpp  # Core libusb hardware engine
 │   │   ├── IrUsbTransceiver.h
 │   │   ├── IrProtocol.h          # Signal encoding/decoding definitions

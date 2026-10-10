@@ -22,6 +22,7 @@ pkg_check_modules(LIBUSB REQUIRED IMPORTED_TARGET libusb-1.0)
 
 # IR Core Static Library
 add_library(ir_core STATIC
+    src/core/README.md
     src/core/RingBuffer.h
     src/core/IrProtocol.h
     src/core/IrProtocol.cpp
@@ -76,3 +77,11 @@ target_link_libraries(ir_tui_test PRIVATE
 
 include(CTest)
 add_test(NAME ir_core_unit_tests COMMAND test_ir_core)
+
+# Project documentation files (visible in Qt Creator and other IDEs)
+add_custom_target(docs
+    SOURCES
+        project_readme.md
+        src/core/README.md
+        ${CMAKE_CURRENT_SOURCE_DIR}/../README.md
+)

@@ -24,7 +24,7 @@ The system is decoupled into a shared core library ([`ir_core`](src/core/README.
                                       +-----------------+-------------+
 +---------------------------------+                     |
 |     Embedded REST HTTP API      |---------------------+
-|   (QHttpServer / cpp-httplib)   |                     |
+|         (cpp-httplib)           |                     |
 +---------------------------------+                     v
                                       +-------------------------------+
                                       |         libusb-1.0            |
@@ -41,8 +41,8 @@ The system is decoupled into a shared core library ([`ir_core`](src/core/README.
 * **Dual Frontend Architecture:**
   * **QML / Qt Quick UI:** Single-codebase graphical interface optimized for desktop and mobile touchscreens.
   * **FTXUI Terminal UI:** Full-featured console dashboard for rapid hardware debugging, protocol inspection, and headless test setups.
-* **Embedded REST HTTP API:** Trigger IR transmissions or monitor status remotely via standard HTTP endpoints.
-* **Asynchronous Driver Execution:** USB polling runs on dedicated worker threads (`QThread`), keeping all UI interaction smooth and non-blocking.
+* **Embedded REST HTTP API:** Trigger IR transmissions, capture pulses, or monitor hardware status remotely via standard HTTP endpoints ([Documentation](src/api/README.md)).
+* **Asynchronous Driver Execution:** USB polling runs on dedicated worker threads (`QThread` / `std::thread`), keeping all UI interaction smooth and non-blocking.
 
 ---
 
@@ -51,17 +51,21 @@ The system is decoupled into a shared core library ([`ir_core`](src/core/README.
 ```
 IR-QtApp/
 ├── CMakeLists.txt                # Root build configuration
-├── README.md                     # Project documentation
+├── project_readme.md             # Project documentation
+├── saved_ir_signals.json         # Default saved IR signals database
 ├── src/
 │   ├── core/                     # Shared static library (ir_core)
 │   │   ├── README.md             # Library documentation & API reference
 │   │   ├── IrUsbTransceiver.cpp  # Core libusb hardware engine
 │   │   ├── IrUsbTransceiver.h
+│   │   ├── IrProtocol.cpp        # Protocol encoding/decoding implementation
 │   │   ├── IrProtocol.h          # Signal encoding/decoding definitions
 │   │   └── RingBuffer.h          # Thread-safe buffer for raw IR pulses
-│   ├── api/                      # Embedded Web API
+│   ├── api/                      # Embedded Web API (ir_api)
+│   │   ├── README.md             # REST API reference and client examples
 │   │   ├── HttpServerModule.cpp  # REST HTTP endpoints
-│   │   └── HttpServerModule.h
+│   │   ├── HttpServerModule.h
+│   │   └── main_api.cpp          # Standalone REST API server executable
 │   ├── ui_qml/                   # Graphical GUI
 │   │   ├── main.cpp              # QML entry point
 │   │   ├── AppController.cpp     # QObject bridge for QML
@@ -70,7 +74,12 @@ IR-QtApp/
 │   └── ui_tui/                   # Terminal GUI Test Tool
 │       ├── main_tui.cpp          # FTXUI entry point
 │       ├── TuiController.cpp     # Console UI controller
-│       └── TuiController.h
+│       ├── TuiController.h
+│       ├── SignalStorage.cpp     # JSON persistence for remote signals
+│       └── SignalStorage.h
+├── tests/                        # Automated unit & integration tests
+│   ├── test_core.cpp             # Core driver & codec tests
+│   └── test_api.cpp              # REST API server endpoint tests
 └── android/                      # Android NDK & Java JNI files
     └── src/org/qtproject/example/UsbPermissionActivity.java
 ```
@@ -83,21 +92,39 @@ Ensure the following tools and libraries are installed on your build system:
 
 * **Compiler:** C++17 compliant compiler (GCC 10+, Clang 12+, MSVC 2019+)
 * **Build System:** CMake 3.16 or higher
-* **Framework:** Qt 6.4+ (`Core`, `Network`, `Quick` modules)
+* **Framework:** Qt 6.4+ (`Core`, `Network`, `Quick` modules for GUI)
 * **USB Library:** `libusb-1.0`
+* **HTTP Server Library:** [cpp-httplib](https://github.com/yhirose/cpp-httplib) (`libcpp-httplib-dev`)
+* **JSON Library:** [nlohmann-json](https://github.com/nlohmann/json) (`nlohmann-json3-dev`)
 * **Terminal UI Library:** [FTXUI](https://github.com/ArthurSpoon/FTXUI) (automatically fetched via CMake)
 
 ### Installing Dependencies
 
-#### Ubuntu / Debian
+#### Ubuntu / Debian (.deb Packages)
+Run the following command to install all required dependencies:
+
 ```bash
 sudo apt update
-sudo apt install build-essential cmake qt6-base-dev qt6-declarative-dev libusb-1.0-0-dev
+sudo apt install build-essential cmake qt6-base-dev qt6-declarative-dev libusb-1.0-0-dev libcpp-httplib-dev nlohmann-json3-dev
 ```
+
+#### Debian Package Breakdown:
+| Package (.deb) | Purpose |
+| :--- | :--- |
+| `build-essential` | C/C++ compiler toolchain (GCC/G++, Make) |
+| `cmake` | Cross-platform build system |
+| `libusb-1.0-0-dev` | C headers and development files for direct USB communication |
+| `libcpp-httplib-dev` | C++17 HTTP/HTTPS server and client library for the embedded REST API |
+| `nlohmann-json3-dev` | Modern C++ JSON parser and serializer for REST requests/responses |
+| `qt6-base-dev` | Qt 6 core libraries and development tools (for QML GUI) |
+| `qt6-declarative-dev` | Qt 6 QML / Quick declarative UI components |
+
+> [!NOTE]
+> If `libcpp-httplib-dev` or `nlohmann-json3-dev` are not installed, CMake's `FetchContent` mechanism will automatically fetch and compile them from GitHub as a fallback during the build process.
 
 #### Windows (vcpkg / MSVC)
 ```cmd
-vcpkg install libusb:x64-windows qtbase:x64-windows qtdeclarative:x64-windows
+vcpkg install libusb:x64-windows cpp-httplib:x64-windows nlohmann-json:x64-windows qtbase:x64-windows qtdeclarative:x64-windows
 ```
 
 ---
@@ -111,21 +138,25 @@ cd IR-QtApp
 ```
 
 ### 2. Configure and Build
-
-Build both the QML GUI and TUI executable:
 ```bash
-mkdir build && cd build
+mkdir -p build && cd build
 cmake ..
 cmake --build . --parallel
 ```
 
-To build a specific binary:
+### 3. Build Specific Targets
 ```bash
-# Build only the TUI test tool
+# Build the REST API standalone server
+cmake --build . --target ir_api_server
+
+# Build the TUI test tool
 cmake --build . --target ir_tui_test
 
-# Build only the QML GUI application
-cmake --build . --target ir_qml_app
+# Build unit tests
+cmake --build . --target test_ir_core test_ir_api
+
+# Run all test suites via CTest
+ctest --output-on-failure
 ```
 
 ---
@@ -137,7 +168,7 @@ To access the USB hardware without root (`sudo`) privileges, create a `udev` rul
 
 ```bash
 # /etc/udev/rules.d/99-ir-usb.rules
-SUBSYSTEM=="usb", ATTR{idVendor}=="1234", ATTR{idProduct}=="5678", MODE="0666", GROUP="plugdev"
+SUBSYSTEM=="usb", ATTR{idVendor}=="10c4", ATTR{idProduct}=="8468", MODE="0666", GROUP="plugdev"
 ```
 Reload rules:
 ```bash
@@ -161,13 +192,35 @@ Due to SELinux restrictions, Android applications cannot directly call `libusb_o
 
 ## 📡 HTTP REST API Reference
 
-The embedded API server listens by default on port `8080`.
+The embedded API server listens by default on port `8080`. For full documentation, examples (cURL, Python, JS, C++), and schemas, see [`src/api/README.md`](src/api/README.md).
 
 | Method | Endpoint | Description | Example Payload |
 | :--- | :--- | :--- | :--- |
-| **GET** | `/api/v1/status` | Returns USB connection status | _None_ |
+| **GET** | `/` | Service description and registered endpoints | _None_ |
+| **GET** | `/api/v1/status` | Returns USB connection & device status | _None_ |
 | **POST** | `/api/v1/send` | Transmits an IR signal | `{"protocol": "NEC", "code": "0x00FF45BA"}` |
-| **GET** | `/api/v1/receive` | Reads the latest raw signal buffer | _None_ |
+| **GET** | `/api/v1/receive` | Reads latest signal from receive ring buffer | _None_ (supports `?last=true`) |
+| **POST** | `/api/v1/capture` | Synchronously waits for incoming signal | `{"timeout": 5.0}` |
+| **POST** | `/api/v1/mode` | Sets transceiver operating mode | `{"mode": "idle"}` |
+| **GET** | `/api/v1/signals` | Lists all stored signals | _None_ |
+| **POST** | `/api/v1/signals` | Saves a new signal to storage | `{"name": "Power", "protocol": "NEC", ...}` |
+| **GET** | `/api/v1/signals/:index` | Retrieves single signal by index | _None_ |
+| **DELETE**| `/api/v1/signals/:index` | Deletes signal from storage by index | _None_ |
+| **POST** | `/api/v1/signals/:index/send` | Transmits stored signal by index | _None_ |
+
+### Quick Start Example
+```bash
+# Start the API server
+./build/ir_api_server --port 8080
+
+# Check status
+curl -s http://localhost:8080/api/v1/status | jq .
+
+# Send a NEC command
+curl -X POST http://localhost:8080/api/v1/send \
+     -H "Content-Type: application/json" \
+     -d '{"protocol": "NEC", "code": "0x00FF45BA"}'
+```
 
 ---
 

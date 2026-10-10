@@ -65,12 +65,13 @@ std::string SignalStorage::getDefaultStoragePath() {
 
 SignalStorage::SignalStorage(std::string storagePath)
     : m_storagePath(std::move(storagePath)) {
+    bool isCustomPath = !m_storagePath.empty();
     if (m_storagePath.empty()) {
         m_storagePath = getDefaultStoragePath();
     }
     if (!loadFromFile()) {
         // Fallback: If default path file didn't exist, try local saved_ir_signals.json
-        if (m_storagePath != "saved_ir_signals.json") {
+        if (!isCustomPath && m_storagePath != "saved_ir_signals.json") {
             if (loadFromFile("saved_ir_signals.json")) {
                 saveToFile();
             }

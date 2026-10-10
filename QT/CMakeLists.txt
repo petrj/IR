@@ -16,72 +16,60 @@ if(NOT CMAKE_BUILD_TYPE STREQUAL "Release")
     add_compile_options(-g)
 endif()
 
-# Find PkgConfig & libusb-1.0
+# Enable IDE folders grouping (for Qt Creator, Visual Studio, Xcode)
+set_property(GLOBAL PROPERTY USE_FOLDERS ON)
+
+# Dependencies
+find_package(Threads REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBUSB REQUIRED IMPORTED_TARGET libusb-1.0)
 
-# IR Core Static Library
-add_library(ir_core STATIC
-    src/core/README.md
-    src/core/RingBuffer.h
-    src/core/IrProtocol.h
-    src/core/IrProtocol.cpp
-    src/core/IrUsbTransceiver.h
-    src/core/IrUsbTransceiver.cpp
-)
+# Embedded REST API Dependencies (cpp-httplib & nlohmann_json)
+find_package(nlohmann_json 3.2.0 QUIET)
+if(NOT nlohmann_json_FOUND)
+    include(FetchContent)
+    message(STATUS "nlohmann_json not found on system; fetching via FetchContent...")
+    FetchContent_Declare(
+        nlohmann_json
+        GIT_REPOSITORY https://github.com/nlohmann/json.git
+        GIT_TAG v3.11.3
+        GIT_SHALLOW TRUE
+    )
+    FetchContent_MakeAvailable(nlohmann_json)
+endif()
 
-target_include_directories(ir_core PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/core>
-    $<INSTALL_INTERFACE:include>
-)
+find_package(httplib QUIET)
+if(NOT httplib_FOUND)
+    pkg_check_modules(HTTPLIB IMPORTED_TARGET cpp-httplib)
+    if(TARGET PkgConfig::HTTPLIB)
+        add_library(httplib::httplib ALIAS PkgConfig::HTTPLIB)
+    else()
+        include(FetchContent)
+        message(STATUS "cpp-httplib not found on system; fetching via FetchContent...")
+        FetchContent_Declare(
+            httplib
+            GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
+            GIT_TAG v0.18.7
+            GIT_SHALLOW TRUE
+        )
+        FetchContent_MakeAvailable(httplib)
+    endif()
+endif()
 
-target_link_libraries(ir_core PUBLIC
-    PkgConfig::LIBUSB
-    Threads::Threads
-)
-
-find_package(Threads REQUIRED)
-
-# IR Core Unit Test Executable
-add_executable(test_ir_core
-    tests/test_core.cpp
-    src/ui_tui/SignalStorage.h
-    src/ui_tui/SignalStorage.cpp
-)
-
-target_include_directories(test_ir_core PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/ui_tui
-)
-
-target_link_libraries(test_ir_core PRIVATE
-    ir_core
-)
-
-# Testing Console Application (TUI / CLI for reading, saving, and transmitting IR signals)
-add_executable(ir_tui_test
-    src/ui_tui/main_tui.cpp
-    src/ui_tui/TuiController.h
-    src/ui_tui/TuiController.cpp
-    src/ui_tui/SignalStorage.h
-    src/ui_tui/SignalStorage.cpp
-)
-
-target_include_directories(ir_tui_test PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/core
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/ui_tui
-)
-
-target_link_libraries(ir_tui_test PRIVATE
-    ir_core
-)
-
+# Testing support
 include(CTest)
-add_test(NAME ir_core_unit_tests COMMAND test_ir_core)
+
+# Modular subdirectories matching real filesystem folders
+add_subdirectory(src/core)
+add_subdirectory(src/api)
+add_subdirectory(src/ui_tui)
+add_subdirectory(tests)
 
 # Project documentation files (visible in Qt Creator and other IDEs)
 add_custom_target(docs
     SOURCES
         project_readme.md
         src/core/README.md
+        src/api/README.md
         ${CMAKE_CURRENT_SOURCE_DIR}/../README.md
 )

@@ -2,7 +2,7 @@
 
 `ir_core` is a lightweight, high-performance, cross-platform C++17 static library for communicating with Infra-Red (IR) USB transceiver hardware, encoding and decoding IR signal timings, and managing thread-safe signal streaming.
 
-Designed with **zero Qt dependencies**, `ir_core` relies strictly on the C++17 Standard Library and native `libusb-1.0`. It serves as the shared backend engine powering graphical applications (Qt Quick/QML), terminal dashboards (FTXUI), embedded REST services, and headless daemon tools.
+Designed with **zero Qt dependencies**, `ir_core` relies strictly on the C++17 Standard Library and native `libusb-1.0`. It serves as the core driver and protocol engine powering graphical applications (Qt Quick/QML), embedded REST services (`ir_api`), and headless daemon tools.
 
 ---
 
@@ -39,10 +39,13 @@ Designed with **zero Qt dependencies**, `ir_core` relies strictly on the C++17 S
 
 ```mermaid
 flowchart TD
-    subgraph Consumers["Frontends & Consumers"]
+    subgraph Frontends["Application Frontends"]
         QML["QML / Qt Quick UI"]
-        TUI["FTXUI Console Test Tool"]
-        API["Embedded REST API"]
+        TUI["Console Test Tool (ir_tui_test)"]
+    end
+
+    subgraph Service["Service Layer"]
+        API["Embedded REST API (ir_api)\n(ir_api_server / cpp-httplib)"]
     end
 
     subgraph IR_CORE["ir_core Library (C++17)"]
@@ -56,8 +59,10 @@ flowchart TD
         DEV["Tiqiaa Tview USB IR Hardware\nVID: 0x10C4 | PID: 0x8468"]
     end
 
-    Consumers --> TC
-    Consumers --> PROT
+    QML -- "HTTP REST API\n(JSON)" --> API
+    TUI -- "HTTP REST API\n(JSON)" --> API
+    API --> TC
+    API --> PROT
     TC --> RB
     TC --> PROT
     TC --> LUSB

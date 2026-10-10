@@ -38,32 +38,107 @@ static std::string currentTimestamp() {
     return std::string(buf);
 }
 
-TuiController::TuiController(std::shared_ptr<IrUsbTransceiver> transceiver)
-    : m_transceiver(std::move(transceiver)), m_storage() {
-    if (!m_transceiver) {
-        m_transceiver = std::make_shared<IrUsbTransceiver>(38);
+TuiController::TuiController(std::string apiBaseUrl)
+    : m_storage() {
+    setApiBaseUrl(apiBaseUrl);
+}
+
+TuiController::TuiController(std::string host, int port)
+    : m_host(std::move(host)), m_port(port), m_storage() {
+    m_apiBaseUrl = "http://" + m_host + ":" + std::to_string(m_port);
+}
+
+void TuiController::setApiBaseUrl(const std::string& url) {
+    m_apiBaseUrl = url;
+    if (m_apiBaseUrl.find("http://") != 0 && m_apiBaseUrl.find("https://") != 0) {
+        m_apiBaseUrl = "http://" + m_apiBaseUrl;
     }
-    m_transceiver->setLogCallback([](const std::string& msg) {
-        std::cout << "[USB] " << msg << "\n";
-    });
+    while (m_apiBaseUrl.size() > 1 && m_apiBaseUrl.back() == '/') {
+        m_apiBaseUrl.pop_back();
+    }
+
+    // Parse host and port
+    std::string noProto = m_apiBaseUrl.substr(m_apiBaseUrl.find("://") + 3);
+    auto colonPos = noProto.find(':');
+    auto slashPos = noProto.find('/');
+    if (colonPos != std::string::npos) {
+        m_host = noProto.substr(0, colonPos);
+        std::string portStr = (slashPos != std::string::npos)
+            ? noProto.substr(colonPos + 1, slashPos - colonPos - 1)
+            : noProto.substr(colonPos + 1);
+        try {
+            m_port = std::stoi(portStr);
+        } catch (...) {
+            m_port = 8080;
+        }
+    } else {
+        m_host = (slashPos != std::string::npos) ? noProto.substr(0, slashPos) : noProto;
+        m_port = (m_apiBaseUrl.rfind("https://", 0) == 0) ? 443 : 80;
+    }
+}
+
+std::unique_ptr<httplib::Client> TuiController::createClient(int timeoutSeconds) const {
+    auto client = std::make_unique<httplib::Client>(m_apiBaseUrl);
+    client->set_connection_timeout(timeoutSeconds);
+    client->set_read_timeout(timeoutSeconds);
+    client->set_write_timeout(timeoutSeconds);
+    return client;
+}
+
+bool TuiController::isApiReachable() {
+    auto client = createClient(2);
+    if (!client) return false;
+    auto res = client->Get("/api/v1/status");
+    return res && (res->status == 200 || res->status == 503);
+}
+
+bool TuiController::isDeviceConnected() {
+    auto client = createClient(2);
+    if (!client) return false;
+    auto res = client->Get("/api/v1/status");
+    if (!res || res->status != 200) return false;
+    try {
+        auto j = nlohmann::json::parse(res->body);
+        return j.value("connected", false);
+    } catch (...) {
+        return false;
+    }
 }
 
 void TuiController::printBanner() const {
     std::cout << "\n=======================================================\n";
     std::cout << "        Tiqiaa USB IR Transceiver Console Tool         \n";
+    std::cout << "             (Connected via HTTP REST API)             \n";
     std::cout << "=======================================================\n";
 }
 
-void TuiController::printMenu() const {
-    bool connected = m_transceiver && m_transceiver->isConnected();
-    std::cout << "\n--- MAIN MENU --- [Device: "
-              << (connected ? "CONNECTED" : "NOT CONNECTED") << "]\n";
-    std::cout << "  1) Capture IR Signal (Single capture, 10s timeout)\n";
-    std::cout << "  2) Continuous Monitor Mode (Real-time receive)\n";
-    std::cout << "  3) Save Last Captured Signal to File\n";
+void TuiController::printMenu() {
+    std::string devStatus = "SERVER OFFLINE";
+    auto client = createClient(2);
+    if (client) {
+        auto res = client->Get("/api/v1/status");
+        if (res && res->status == 200) {
+            try {
+                auto j = nlohmann::json::parse(res->body);
+                if (j.value("connected", false)) {
+                    devStatus = "CONNECTED";
+                } else {
+                    devStatus = "DISCONNECTED";
+                }
+            } catch (...) {
+                devStatus = "ONLINE";
+            }
+        }
+    }
+
+    std::cout << "\n--- MAIN MENU --- [API: " << m_apiBaseUrl
+              << " | Device: " << devStatus << "]\n";
+    std::cout << "  1) Capture IR Signal (Single capture via HTTP API)\n";
+    std::cout << "  2) Continuous Monitor Mode (Live polling stream)\n";
+    std::cout << "  3) Save Last Captured Signal to File & API Server\n";
     std::cout << "  4) List & Manage Saved Signals (" << m_storage.count() << " saved)\n";
-    std::cout << "  5) Transmit (Send) IR Signal\n";
-    std::cout << "  6) USB Hardware Information & Diagnostics\n";
+    std::cout << "  5) Transmit (Send) IR Signal via HTTP API\n";
+    std::cout << "  6) USB Hardware Information & Diagnostics (via API)\n";
     std::cout << "  7) Simulate IR Capture (Test without hardware)\n";
     std::cout << "  Q) Quit\n";
     std::cout << "Select option (1-7, Q): " << std::flush;
@@ -81,8 +156,8 @@ void TuiController::displaySignalDetails(const IrSignal& signal, const std::stri
 
     DecodedCode necCode;
     if (IrProtocol::decodeNec(signal.pulses, necCode)) {
-        std::cout << "| Protocol:    NEC\n";
-        std::cout << "| Address:     0x" << std::hex << std::uppercase << std::setw(2) << std::setfill('0') << necCode.address << std::dec << "\n";
+        std::cout << "| Protocol:    NEC" << (necCode.address > 0xFF ? " (Extended 16-bit)" : "") << "\n";
+        std::cout << "| Address:     0x" << std::hex << std::uppercase << (necCode.address > 0xFF ? std::setw(4) : std::setw(2)) << std::setfill('0') << necCode.address << std::dec << "\n";
         std::cout << "| Command:     0x" << std::hex << std::uppercase << std::setw(2) << std::setfill('0') << necCode.command << std::dec << "\n";
         std::cout << "| Raw Hex:     0x" << std::hex << std::uppercase << std::setw(8) << std::setfill('0') << necCode.rawValue << std::dec << "\n";
         std::cout << std::setfill(' ');
@@ -140,66 +215,152 @@ void TuiController::handleReceivedSignal(const IrSignal& sig, const std::string&
             }
 
             m_storage.addSignal(saved);
-            std::cout << "[SUCCESS] Automatically saved new signal \"" << name
-                      << "\" to " << m_storage.getStoragePath() << "!\n";
+            std::cout << "[SUCCESS] Saved new signal \"" << name
+                      << "\" to local storage (" << m_storage.getStoragePath() << ")!\n";
+
+            // Sync with HTTP API server
+            auto client = createClient(3);
+            if (client) {
+                nlohmann::json apiReq = {
+                    {"name", saved.name},
+                    {"protocol", saved.protocol},
+                    {"frequency", static_cast<int>(saved.frequency_khz)},
+                    {"timestamp", saved.timestamp},
+                    {"rawHex", saved.rawHex},
+                    {"pulses", saved.pulses}
+                };
+                auto res = client->Post("/api/v1/signals", apiReq.dump(), "application/json");
+                if (res && (res->status == 200 || res->status == 201)) {
+                    std::cout << "[API] Synced \"" << name << "\" to HTTP API server.\n";
+                }
+            }
         }
     }
 }
 
 bool TuiController::captureOnce(float timeoutSeconds) {
-    if (!m_transceiver->isConnected()) {
-        std::cout << "[INFO] Hardware not connected. Attempting to open device...\n";
-        if (!m_transceiver->openDevice()) {
-            std::cout << "[ERROR] Could not connect to Tiqiaa USB device.\n";
-            std::cout << "[TIP] Use option 7 to simulate a capture without hardware.\n";
-            return false;
-        }
+    auto client = createClient(static_cast<int>(timeoutSeconds) + 5);
+    if (!client) {
+        std::cerr << "[ERROR] Could not initialize HTTP client.\n";
+        return false;
     }
 
     std::cout << "\n>>> Point your remote at the transceiver and press a button...\n";
-    std::cout << ">>> Listening (Timeout: " << timeoutSeconds << "s)...\n" << std::flush;
+    std::cout << ">>> Listening via HTTP API at " << m_apiBaseUrl << " (Timeout: " << timeoutSeconds << "s)...\n" << std::flush;
 
-    IrSignal sig;
-    if (m_transceiver->captureOnce(sig, timeoutSeconds)) {
-        handleReceivedSignal(sig, "NEW IR SIGNAL CAPTURED", true);
-        return true;
-    } else {
-        std::cout << "[TIMEOUT] No IR signal detected within " << timeoutSeconds << " seconds.\n";
+    nlohmann::json reqBody = {{"timeout", timeoutSeconds}};
+    auto res = client->Post("/api/v1/capture", reqBody.dump(), "application/json");
+
+    if (!res) {
+        std::cerr << "[ERROR] Failed to communicate with API server at " << m_apiBaseUrl << ".\n";
+        std::cerr << "[TIP] Ensure ir_api_server is running and reachable.\n";
         return false;
     }
+
+    if (res->status == 200) {
+        try {
+            auto j = nlohmann::json::parse(res->body);
+            if (j.contains("signal") && j["signal"].contains("pulses")) {
+                IrSignal sig;
+                sig.pulses = j["signal"]["pulses"].get<std::vector<int>>();
+                sig.frequency_khz = static_cast<uint8_t>(j["signal"].value("frequency", 38));
+                sig.timestamp = std::chrono::system_clock::now();
+                handleReceivedSignal(sig, "NEW IR SIGNAL CAPTURED", true);
+                return true;
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "[ERROR] Failed to parse capture response: " << e.what() << "\n";
+            return false;
+        }
+    } else if (res->status == 408) {
+        std::cout << "[TIMEOUT] No IR signal detected within " << timeoutSeconds << " seconds.\n";
+        return false;
+    } else {
+        std::string err = res->body;
+        try {
+            auto j = nlohmann::json::parse(res->body);
+            err = j.value("error", err);
+        } catch (...) {}
+        std::cerr << "[ERROR] Capture request failed (HTTP " << res->status << "): " << err << "\n";
+        return false;
+    }
+    return false;
 }
 
 void TuiController::startContinuousMonitor() {
-    if (!m_transceiver->isConnected()) {
-        if (!m_transceiver->openDevice()) {
-            std::cout << "[ERROR] Could not open USB device. Ensure device is plugged in.\n";
-            return;
+    auto client = createClient(5);
+    if (!client) {
+        std::cerr << "[ERROR] Could not connect to API server at " << m_apiBaseUrl << ".\n";
+        return;
+    }
+
+    // Tell server to start background polling
+    nlohmann::json modeReq = {{"mode", "start_polling"}};
+    auto modeRes = client->Post("/api/v1/mode", modeReq.dump(), "application/json");
+    if (!modeRes || (modeRes->status != 200 && modeRes->status != 500)) {
+        std::cerr << "[ERROR] Failed to start background polling on API server.\n";
+        return;
+    }
+
+    // Drain any old buffered signals
+    while (true) {
+        auto drainRes = client->Get("/api/v1/receive");
+        if (!drainRes || drainRes->status != 200) break;
+        try {
+            auto j = nlohmann::json::parse(drainRes->body);
+            if (!j.value("available", false)) break;
+        } catch (...) {
+            break;
         }
     }
 
     std::cout << "\n=======================================================\n";
-    std::cout << " Continuous Monitor Mode Active\n";
+    std::cout << " Continuous Monitor Mode Active (via HTTP API)\n";
     std::cout << " Point remote and press buttons. Press ENTER to return to menu.\n";
     std::cout << "=======================================================\n";
 
-    m_transceiver->setSignalReceivedCallback([this](const IrSignal& sig) {
-        handleReceivedSignal(sig, "SIGNAL CAPTURED (CONTINUOUS MONITOR)", false);
+    m_monitoring = true;
+    std::thread pollThread([this]() {
+        auto pollClient = createClient(3);
+        while (m_monitoring.load()) {
+            if (pollClient) {
+                auto res = pollClient->Get("/api/v1/receive");
+                if (res && res->status == 200) {
+                    try {
+                        auto j = nlohmann::json::parse(res->body);
+                        if (j.value("available", false) && j.contains("signal")) {
+                            IrSignal sig;
+                            sig.pulses = j["signal"]["pulses"].get<std::vector<int>>();
+                            sig.frequency_khz = static_cast<uint8_t>(j["signal"].value("frequency", 38));
+                            sig.timestamp = std::chrono::system_clock::now();
+                            handleReceivedSignal(sig, "SIGNAL CAPTURED (CONTINUOUS MONITOR)", false);
+                        }
+                    } catch (...) {}
+                }
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
     });
-
-    m_transceiver->startBackgroundPolling();
 
     // Wait for user to hit enter
     std::string dummy;
     std::getline(std::cin, dummy);
 
-    m_transceiver->stopBackgroundPolling();
-    m_transceiver->setSignalReceivedCallback(nullptr);
+    m_monitoring = false;
+    if (pollThread.joinable()) {
+        pollThread.join();
+    }
+
+    // Tell server to stop background polling
+    nlohmann::json stopReq = {{"mode", "stop_polling"}};
+    client->Post("/api/v1/mode", stopReq.dump(), "application/json");
+
     std::cout << "[INFO] Continuous monitor stopped.\n";
 }
 
 void TuiController::saveLastCapturedSignal() {
     if (!m_lastCaptured) {
-        std::cout << "[WARNING] No signal captured yet! Capture a signal first (Option 1 or 7).\n";
+        std::cout << "[WARNING] No signal captured yet! Capture a signal first (Option 1, 2, or 7).\n";
         return;
     }
 
@@ -229,47 +390,69 @@ void TuiController::saveLastCapturedSignal() {
     }
 
     m_storage.addSignal(saved);
-    std::cout << "[SUCCESS] Saved '" << name << "' to " << m_storage.getStoragePath() << "!\n";
+    std::cout << "[SUCCESS] Saved '" << name << "' to local storage (" << m_storage.getStoragePath() << ")!\n";
+
+    // Sync with HTTP API server
+    auto client = createClient(3);
+    if (client) {
+        nlohmann::json apiReq = {
+            {"name", saved.name},
+            {"protocol", saved.protocol},
+            {"frequency", static_cast<int>(saved.frequency_khz)},
+            {"timestamp", saved.timestamp},
+            {"rawHex", saved.rawHex},
+            {"pulses", saved.pulses}
+        };
+        auto res = client->Post("/api/v1/signals", apiReq.dump(), "application/json");
+        if (res && (res->status == 200 || res->status == 201)) {
+            std::cout << "[API] Synced '" << name << "' to HTTP API server.\n";
+        }
+    }
 }
 
 void TuiController::listSavedSignals() {
     size_t count = m_storage.count();
     if (count == 0) {
-        std::cout << "\n[INFO] No signals currently saved in " << m_storage.getStoragePath() << ".\n";
-        return;
+        std::cout << "\n[INFO] No signals currently saved in local storage (" << m_storage.getStoragePath() << ").\n";
+    } else {
+        std::cout << "\n================ SAVED SIGNALS (" << count << ") ================\n";
+        std::cout << "Storage location: " << m_storage.getStoragePath() << "\n";
+        std::cout << std::setfill(' ') << std::left << std::setw(4) << "#"
+                  << std::setw(24) << "Name"
+                  << std::setw(10) << "Protocol"
+                  << std::setw(10) << "Freq(kHz)"
+                  << std::setw(8) << "Pulses"
+                  << std::setw(20) << "Timestamp"
+                  << "\n---------------------------------------------------------------\n";
+
+        const auto& list = m_storage.getSignals();
+        for (size_t i = 0; i < list.size(); ++i) {
+            std::cout << std::left << std::setw(4) << (i + 1)
+                      << std::setw(24) << list[i].name
+                      << std::setw(10) << list[i].protocol
+                      << std::setw(10) << static_cast<int>(list[i].frequency_khz)
+                      << std::setw(8) << list[i].pulses.size()
+                      << std::setw(20) << list[i].timestamp
+                      << "\n";
+        }
+        std::cout << "===============================================================\n";
     }
 
-    std::cout << "\n================ SAVED SIGNALS (" << count << ") ================\n";
-    std::cout << "Storage location: " << m_storage.getStoragePath() << "\n";
-    std::cout << std::setfill(' ') << std::left << std::setw(4) << "#"
-              << std::setw(24) << "Name"
-              << std::setw(10) << "Protocol"
-              << std::setw(10) << "Freq(kHz)"
-              << std::setw(8) << "Pulses"
-              << std::setw(20) << "Timestamp"
-              << "\n---------------------------------------------------------------\n";
-
-    const auto& list = m_storage.getSignals();
-    for (size_t i = 0; i < list.size(); ++i) {
-        std::cout << std::left << std::setw(4) << (i + 1)
-                  << std::setw(24) << list[i].name
-                  << std::setw(10) << list[i].protocol
-                  << std::setw(10) << static_cast<int>(list[i].frequency_khz)
-                  << std::setw(8) << list[i].pulses.size()
-                  << std::setw(20) << list[i].timestamp
-                  << "\n";
-    }
-    std::cout << "===============================================================\n";
     std::cout << "Actions: (D # to delete, Enter to return): " << std::flush;
     std::string act;
     std::getline(std::cin, act);
     if (!act.empty() && (act[0] == 'd' || act[0] == 'D')) {
         std::istringstream iss(act.substr(1));
         size_t idx;
-        if (iss >> idx && idx >= 1 && idx <= list.size()) {
-            std::string delName = list[idx - 1].name;
+        if (iss >> idx && idx >= 1 && idx <= m_storage.count()) {
+            std::string delName = m_storage.getSignals()[idx - 1].name;
             m_storage.removeSignal(idx - 1);
-            std::cout << "[INFO] Removed '" << delName << "'.\n";
+            std::cout << "[INFO] Removed '" << delName << "' from local storage.\n";
+            // Also delete on server if available
+            auto client = createClient(2);
+            if (client) {
+                client->Delete("/api/v1/signals/" + std::to_string(idx - 1));
+            }
         }
     }
 }
@@ -285,7 +468,7 @@ void TuiController::transmitSavedSignal() {
                       << " (" << list[i].protocol << ", " << list[i].pulses.size() << " pulses)\n";
         }
     } else {
-        std::cout << "  (No saved signals found in " << m_storage.getStoragePath() << ")\n";
+        std::cout << "  (No saved signals found in local storage: " << m_storage.getStoragePath() << ")\n";
     }
     std::cout << "Select signal number or name to transmit (or 'M' for manual pulses): " << std::flush;
 
@@ -343,19 +526,7 @@ void TuiController::transmitSavedSignal() {
         return;
     }
 
-    if (!m_transceiver->isConnected()) {
-        if (!m_transceiver->openDevice()) {
-            std::cout << "[ERROR] Cannot transmit: Hardware device not found.\n";
-            return;
-        }
-    }
-
-    std::cout << "[INFO] Transmitting '" << name << "' (" << pulsesToSend.size() << " pulses)...\n";
-    if (m_transceiver->transmitIr(pulsesToSend, freq)) {
-        std::cout << "[SUCCESS] Transmission complete!\n";
-    } else {
-        std::cout << "[ERROR] Transmission failed.\n";
-    }
+    transmitPulses(pulsesToSend, freq, name);
 }
 
 void TuiController::transmitManualSequence() {
@@ -368,43 +539,93 @@ void TuiController::transmitManualSequence() {
         return;
     }
 
-    if (!m_transceiver->isConnected()) {
-        if (!m_transceiver->openDevice()) {
-            std::cout << "[ERROR] Cannot transmit: Hardware device not found.\n";
-            return;
-        }
+    transmitPulses(pulses, 38, "Manual Pulse Sequence");
+}
+
+bool TuiController::transmitPulses(const std::vector<int>& pulses, uint8_t frequency_khz, const std::string& name) {
+    if (pulses.empty()) {
+        std::cerr << "[ERROR] Cannot transmit empty pulse sequence.\n";
+        return false;
     }
 
-    std::cout << "[INFO] Transmitting " << pulses.size() << " pulses...\n";
-    if (m_transceiver->transmitIr(pulses, 38)) {
-        std::cout << "[SUCCESS] Transmission complete!\n";
+    auto client = createClient(5);
+    if (!client) {
+        std::cerr << "[ERROR] Could not initialize HTTP client.\n";
+        return false;
+    }
+
+    nlohmann::json reqBody = {
+        {"protocol", "Raw"},
+        {"pulses", pulses},
+        {"frequency", static_cast<int>(frequency_khz)}
+    };
+
+    std::cout << "[INFO] Transmitting '" << name << "' (" << pulses.size() << " pulses, "
+              << static_cast<int>(frequency_khz) << " kHz) via API...\n";
+
+    auto res = client->Post("/api/v1/send", reqBody.dump(), "application/json");
+    if (!res) {
+        std::cerr << "[ERROR] Failed to send transmission request to API server at " << m_apiBaseUrl << ".\n";
+        return false;
+    }
+
+    if (res->status == 200) {
+        std::cout << "[SUCCESS] Transmission of '" << name << "' complete!\n";
+        return true;
     } else {
-        std::cout << "[ERROR] Transmission failed.\n";
+        std::string err = res->body;
+        try {
+            auto j = nlohmann::json::parse(res->body);
+            err = j.value("error", err);
+        } catch (...) {}
+        std::cerr << "[ERROR] Transmission failed (HTTP " << res->status << "): " << err << "\n";
+        return false;
     }
 }
 
 void TuiController::printHardwareInfo() {
-    std::cout << "\n================ USB HARDWARE STATUS ================\n";
-    if (!m_transceiver->isConnected()) {
-        std::cout << "Device Status: Disconnected\n";
-        std::cout << "Attempting connection...\n";
-        m_transceiver->openDevice();
+    std::cout << "\n================ HARDWARE & API STATUS ================\n";
+    std::cout << "API Server URL:    " << m_apiBaseUrl << "\n";
+
+    auto client = createClient(3);
+    if (!client) {
+        std::cout << "API Status:        ERROR (Client creation failed)\n";
+        std::cout << "=======================================================\n";
+        return;
     }
 
-    DeviceInfo info = m_transceiver->getDeviceInfo();
-    std::cout << "Connected:         " << (info.isConnected ? "YES" : "NO") << "\n";
-    std::cout << "Manufacturer:      " << info.manufacturer << "\n";
-    std::cout << "Product:           " << info.product << "\n";
-    std::cout << "Serial Number:     " << info.serialNumber << "\n";
-    std::cout << "Vendor ID (VID):   0x" << std::hex << std::uppercase << info.vendorId << std::dec << "\n";
-    std::cout << "Product ID (PID):  0x" << std::hex << std::uppercase << info.productId << std::dec << "\n";
-    std::cout << "Default Frequency: " << static_cast<int>(info.defaultFrequency) << " kHz\n";
-
-    if (info.isConnected) {
-        std::string fw = m_transceiver->getFirmwareVersion();
-        std::cout << "Firmware Version:  " << fw << "\n";
+    auto res = client->Get("/api/v1/status");
+    if (!res) {
+        std::cout << "API Status:        OFFLINE (Could not connect to " << m_apiBaseUrl << ")\n";
+        std::cout << "=======================================================\n";
+        return;
     }
-    std::cout << "=====================================================\n";
+
+    std::cout << "API Status:        ONLINE (HTTP " << res->status << ")\n";
+    try {
+        auto j = nlohmann::json::parse(res->body);
+        bool connected = j.value("connected", false);
+        std::string state = j.value("state", "Unknown");
+        std::cout << "Device Connected:  " << (connected ? "YES" : "NO") << "\n";
+        std::cout << "Device State:      " << state << "\n";
+
+        if (j.contains("device") && j["device"].is_object()) {
+            const auto& dev = j["device"];
+            std::cout << "Manufacturer:      " << dev.value("manufacturer", "N/A") << "\n";
+            std::cout << "Product:           " << dev.value("product", "N/A") << "\n";
+            std::cout << "Serial Number:     " << dev.value("serialNumber", "N/A") << "\n";
+            std::cout << "Vendor ID (VID):   " << dev.value("vendorId", "N/A") << "\n";
+            std::cout << "Product ID (PID):  " << dev.value("productId", "N/A") << "\n";
+            std::cout << "Default Frequency: " << dev.value("defaultFrequency", 38) << " kHz\n";
+            std::cout << "Firmware Version:  " << dev.value("firmwareVersion", "N/A") << "\n";
+        }
+        if (j.contains("savedSignalsCount")) {
+            std::cout << "Server Signals:    " << j["savedSignalsCount"] << "\n";
+        }
+    } catch (const std::exception& e) {
+        std::cout << "Failed to parse API status response: " << e.what() << "\n";
+    }
+    std::cout << "=======================================================\n";
 }
 
 void TuiController::simulateCapture() {
@@ -470,8 +691,10 @@ void TuiController::runInteractiveLoop() {
     }
 #endif
 
-    // Auto-connect if possible
-    m_transceiver->openDevice();
+    if (!isApiReachable()) {
+        std::cout << "[WARNING] Cannot reach HTTP API server at " << m_apiBaseUrl << ".\n";
+        std::cout << "Please ensure ir_api_server is running (e.g. ./build/debug/ir_api_server).\n\n";
+    }
 
     bool running = true;
     while (running && std::cin.good()) {

@@ -331,8 +331,8 @@ bool IrUsbTransceiver::readPayload(std::vector<uint8_t>& outPayload, unsigned in
 
     auto hasEnTerminator = [](const std::vector<uint8_t>& p) {
         if (p.size() < 2) return false;
-        for (size_t i = 0; i + 1 < p.size(); ++i) {
-            if (p[i] == 'E' && p[i + 1] == 'N') return true;
+        for (size_t i = p.size(); i >= 2; --i) {
+            if (p[i - 2] == 'E' && p[i - 1] == 'N') return true;
         }
         return false;
     };
@@ -350,11 +350,6 @@ bool IrUsbTransceiver::readPayload(std::vector<uint8_t>& outPayload, unsigned in
         std::vector<uint8_t> payload;
         size_t availableLen = std::min<size_t>(fragLen, firstPacket.size() - 5);
         payload.insert(payload.end(), firstPacket.begin() + 5, firstPacket.begin() + 5 + availableLen);
-
-        if (hasEnTerminator(payload)) {
-            outPayload = std::move(payload);
-            return true;
-        }
 
         int remaining = totalChunks - 1;
         int maxTimeouts = 4;
@@ -385,17 +380,14 @@ bool IrUsbTransceiver::readPayload(std::vector<uint8_t>& outPayload, unsigned in
                 payload.insert(payload.end(), nextPacket.begin() + 5, nextPacket.begin() + 5 + nextAvail);
                 remaining--;
                 timeouts = 0;
-
-                // Stop early if EN terminator is found in payload
-                if (hasEnTerminator(payload)) {
-                    outPayload = std::move(payload);
-                    return true;
-                }
             } else {
                 timeouts++;
                 if (timeouts >= maxTimeouts) {
                     log("Timed out waiting for trailing USB fragment (" + std::to_string(remaining) +
                         " chunks remaining, assembled payload: " + std::to_string(payload.size()) + " B)");
+                    if (hasEnTerminator(payload)) {
+                        break;
+                    }
                     flushInputBuffer();
                     return false;
                 }

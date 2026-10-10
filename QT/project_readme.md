@@ -2,34 +2,41 @@
 
 A high-performance, cross-platform C++ / Qt 6 application for receiving, transmitting, and processing Infra-Red (IR) signals using USB transceiver hardware.
 
-This project replaces legacy Python-based USB drivers with a lightweight, native C++ engine (`libusb`), providing an embedded HTTP REST API alongside two dedicated frontends: a modern graphical interface (**QML**) and a lightweight terminal interface (**FTXUI**).
+This project replaces legacy Python-based USB drivers with a lightweight, native C++ engine (`libusb`), providing an embedded HTTP REST API server (`ir_api_server`), a modern graphical interface (**QML**), and an interactive terminal / console test tool (**`ir_tui_test`**) that connects directly to the HTTP REST API.
 
 ---
 
 ## 🏗 Architecture Overview
 
-The system is decoupled into a shared core library ([`ir_core`](src/core/README.md)) consumed by all frontends and services:
+The system architecture decouples the frontends from the hardware drivers via an embedded REST HTTP API server, which acts as the central interface to the native C++ engine ([`ir_core`](src/core/README.md)):
 
 ```
-                          +-----------------------------------+
-                          |     QML Graphical User Interface   |
-                          |  (Windows / Linux / Android GUI)  |
-                          +-----------------+-----------------+
-                                            |
-                                            v
-+---------------------------------+   +-----+-------------------------+
-|     FTXUI Terminal Interface    |-->|      IR Core Engine (C++)     |
-|   (Console / Hardware Testing)  |   |  - IR signal timing/pulses    |
-+---------------------------------+   |  - Lock-free ring buffer      |
-                                      +-----------------+-------------+
-+---------------------------------+                     |
-|     Embedded REST HTTP API      |---------------------+
-|         (cpp-httplib)           |                     |
-+---------------------------------+                     v
-                                      +-------------------------------+
-                                      |         libusb-1.0            |
-                                      |  (Cross-platform USB I/O)     |
-                                      +-------------------------------+
++-----------------------------------+     +---------------------------------+
+|    QML Graphical User Interface   |     |     Console Test Tool (TUI)     |
+|  (Windows / Linux / Android GUI)  |     |       (ir_tui_test / CLI)       |
++-----------------+-----------------+     +----------------+----------------+
+                  |                                        |
+                  |         HTTP REST API (JSON)           |
+                  +-------------------+--------------------+
+                                      |
+                                      v
+                      +---------------------------------+
+                      |     Embedded REST HTTP API      |
+                      |  (ir_api_server / cpp-httplib)  |
+                      +---------------+-----------------+
+                                      |
+                                      v
+                      +---------------------------------+
+                      |      IR Core Engine (C++)       |
+                      |  - IR signal timing/pulses      |
+                      |  - Lock-free ring buffer        |
+                      +---------------+-----------------+
+                                      |
+                                      v
+                      +---------------------------------+
+                      |         libusb-1.0              |
+                      |  (Cross-platform USB I/O)       |
+                      +---------------------------------+
 ```
 
 ---
@@ -39,8 +46,8 @@ The system is decoupled into a shared core library ([`ir_core`](src/core/README.
 * **Cross-Platform Support:** Native operation across **Linux**, **Windows**, and **Android**.
 * **Direct Hardware Access:** Ultra-low latency USB communication via native C++ `libusb-1.0`.
 * **Dual Frontend Architecture:**
-  * **QML / Qt Quick UI:** Single-codebase graphical interface optimized for desktop and mobile touchscreens.
-  * **FTXUI Terminal UI:** Full-featured console dashboard for rapid hardware debugging, protocol inspection, and headless test setups.
+  * **QML / Qt Quick UI:** Modern graphical interface optimized for desktop and mobile touchscreens, interacting with the transceiver via the Embedded REST HTTP API.
+  * **Terminal Console Test Tool (`ir_tui_test`):** Full-featured interactive console dashboard and CLI tool communicating over the HTTP REST API (`http://127.0.0.1:8080`) for rapid hardware debugging, protocol inspection, single capture, continuous polling, and transmission.
 * **Embedded REST HTTP API:** Trigger IR transmissions, capture pulses, or monitor hardware status remotely via standard HTTP endpoints ([Documentation](src/api/README.md)).
 * **Asynchronous Driver Execution:** USB polling runs on dedicated worker threads (`QThread` / `std::thread`), keeping all UI interaction smooth and non-blocking.
 
@@ -71,9 +78,9 @@ IR-QtApp/
 │   │   ├── AppController.cpp     # QObject bridge for QML
 │   │   ├── AppController.h
 │   │   └── main.qml              # Declarative UI layout
-│   └── ui_tui/                   # Terminal GUI Test Tool
-│       ├── main_tui.cpp          # FTXUI entry point
-│       ├── TuiController.cpp     # Console UI controller
+│   └── ui_tui/                   # Terminal GUI Test Tool (HTTP API Consumer)
+│       ├── main_tui.cpp          # Console entry point & CLI parser
+│       ├── TuiController.cpp     # HTTP API-driven console controller
 │       ├── TuiController.h
 │       ├── SignalStorage.cpp     # JSON persistence for remote signals
 │       └── SignalStorage.h
@@ -94,9 +101,8 @@ Ensure the following tools and libraries are installed on your build system:
 * **Build System:** CMake 3.16 or higher
 * **Framework:** Qt 6.4+ (`Core`, `Network`, `Quick` modules for GUI)
 * **USB Library:** `libusb-1.0`
-* **HTTP Server Library:** [cpp-httplib](https://github.com/yhirose/cpp-httplib) (`libcpp-httplib-dev`)
+* **HTTP Server / Client Library:** [cpp-httplib](https://github.com/yhirose/cpp-httplib) (`libcpp-httplib-dev`)
 * **JSON Library:** [nlohmann-json](https://github.com/nlohmann/json) (`nlohmann-json3-dev`)
-* **Terminal UI Library:** [FTXUI](https://github.com/ArthurSpoon/FTXUI) (automatically fetched via CMake)
 
 ### Installing Dependencies
 
@@ -172,6 +178,40 @@ Convenience scripts are provided in the project root:
 # Clean all build artifacts and delete the build/ directory
 ./clean.sh
 ```
+
+---
+
+## 💻 Terminal Console Test Tool (`ir_tui_test`)
+
+The `ir_tui_test` executable provides an interactive console menu and CLI commands that interface directly with the hardware through the embedded REST HTTP API:
+
+```bash
+# 1. Run interactive menu (connects to http://127.0.0.1:8080 by default)
+./build/debug/ir_tui_test
+
+# 2. Connect to an API server running on a custom host/port
+./build/debug/ir_tui_test --api http://127.0.0.1:8089
+
+# 3. Single-shot capture via HTTP API and exit (exit code 0 on success)
+./build/debug/ir_tui_test --read
+
+# 4. Transmit a signal via API (by stored name, index, or pulse timings)
+./build/debug/ir_tui_test --send "TV Power"
+./build/debug/ir_tui_test --send "[9000, -4500, 560, -560, 560, -1690]"
+
+# 5. List all locally stored and recognized signals
+./build/debug/ir_tui_test --list
+
+# 6. Display hardware diagnostics and connection status via API
+./build/debug/ir_tui_test --info
+```
+
+> [!TIP]
+> You can also configure the target API server URL using the `IR_API_URL` environment variable:
+> ```bash
+> export IR_API_URL="http://192.168.1.100:8080"
+> ./build/debug/ir_tui_test
+> ```
 
 ---
 

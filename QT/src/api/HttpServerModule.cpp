@@ -163,7 +163,7 @@ nlohmann::json HttpServerModule::signalToJson(const IrSignal& sig, const SignalS
     if (IrProtocol::decodeNec(sig.pulses, decoded)) {
         std::ostringstream ssHex, ssAddr, ssCmd;
         ssHex << "0x" << std::uppercase << std::hex << std::setw(8) << std::setfill('0') << decoded.rawValue;
-        ssAddr << "0x" << std::uppercase << std::hex << std::setw(2) << std::setfill('0') << decoded.address;
+        ssAddr << "0x" << std::uppercase << std::hex << (decoded.address > 0xFF ? std::setw(4) : std::setw(2)) << std::setfill('0') << decoded.address;
         ssCmd << "0x" << std::uppercase << std::hex << std::setw(2) << std::setfill('0') << decoded.command;
 
         out["decoded"] = {
@@ -355,6 +355,14 @@ void HttpServerModule::handlePostSend(const httplib::Request& req, httplib::Resp
             pulses.push_back(560);
             pulses.push_back(-40000);
 
+            int repeats = j.value("repeats", 0);
+            for (int r = 0; r < repeats; ++r) {
+                pulses.push_back(9000);
+                pulses.push_back(-2250);
+                pulses.push_back(560);
+                pulses.push_back(-40000);
+            }
+
             bool ok = m_transceiver->transmitIr(pulses, frequency);
             if (ok) {
                 std::ostringstream ss;
@@ -392,6 +400,14 @@ void HttpServerModule::handlePostSend(const httplib::Request& req, httplib::Resp
             }
 
             std::vector<int> pulses = IrProtocol::encodeNec(addr, cmd);
+            int repeats = j.value("repeats", 0);
+            for (int r = 0; r < repeats; ++r) {
+                pulses.push_back(9000);
+                pulses.push_back(-2250);
+                pulses.push_back(560);
+                pulses.push_back(-40000);
+            }
+
             bool ok = m_transceiver->transmitIr(pulses, frequency);
             if (ok) {
                 res.status = 200;

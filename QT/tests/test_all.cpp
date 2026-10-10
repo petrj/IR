@@ -114,11 +114,24 @@ void testTiqiaaPayloadEncodingAndDecoding() {
     for (size_t i = 0; i < originalPulses.size(); ++i) {
         assert(std::abs(decodedSignal.pulses[i] - originalPulses[i]) <= 16);
     }
+
+    // Verify payload containing 0x45, 0x4E ('E', 'N') inside data does not trigger false early termination
+    std::vector<uint8_t> frameWithInternalEn = {
+        'S', 'T', 1, 'D', 38,
+        0xFF, 0x45, 0x4E, 0x85, // 0x45 ('E') and 0x4E ('N') inside pulse data
+        0x10, 0x90,
+        'E', 'N'                // Real terminator at the end
+    };
+    ir::IrSignal decodedWithInternalEn;
+    bool okInternal = ir::IrProtocol::decodeTiqiaaPayload(frameWithInternalEn, decodedWithInternalEn);
+    assert(okInternal);
+    assert(decodedWithInternalEn.pulses.size() >= 3);
 }
 
 void testNecProtocolCodec() {
     std::cout << "  [CORE] Testing NEC protocol encode & decode..." << std::endl;
 
+    // 1. Standard 8-bit NEC
     uint32_t address = 0x00;
     uint32_t command = 0x45;
 
@@ -132,6 +145,41 @@ void testNecProtocolCodec() {
     assert(code.address == address);
     assert(code.command == command);
     assert(!code.isRepeat);
+
+    // 2. Extended 16-bit NEC with non-complementary address (e.g., 0x1234)
+    uint32_t extAddr = 0x1234;
+    uint32_t extCmd = 0x71;
+    std::vector<int> extPulses = ir::IrProtocol::encodeNec(extAddr, extCmd);
+    assert(extPulses.size() == 68);
+
+    ir::DecodedCode extCode;
+    bool extOk = ir::IrProtocol::decodeNec(extPulses, extCode);
+    assert(extOk);
+    assert(extCode.protocol == ir::IrProtocolType::NEC);
+    assert(extCode.address == extAddr);
+    assert(extCode.command == extCmd);
+
+    // 3. Hisense TV complementary address (0x04FB where 0x04 == ~0xFB, decoded as 8-bit address 0xFB)
+    uint32_t hisenseAddr = 0x04FB;
+    uint32_t hisenseCmd = 0x71;
+    std::vector<int> hisensePulses = ir::IrProtocol::encodeNec(hisenseAddr, hisenseCmd);
+    assert(hisensePulses.size() == 68);
+
+    ir::DecodedCode hisenseCode;
+    bool hisenseOk = ir::IrProtocol::decodeNec(hisensePulses, hisenseCode);
+    assert(hisenseOk);
+    assert(hisenseCode.protocol == ir::IrProtocolType::NEC);
+    assert(hisenseCode.address == 0xFB);
+    assert(hisenseCode.command == hisenseCmd);
+
+    // 4. Decoding signal with leading idle space and noise glitch
+    std::vector<int> noisyPulses = { -320, 150, -200 };
+    noisyPulses.insert(noisyPulses.end(), hisensePulses.begin(), hisensePulses.end());
+    ir::DecodedCode noisyCode;
+    bool noisyOk = ir::IrProtocol::decodeNec(noisyPulses, noisyCode);
+    assert(noisyOk);
+    assert(noisyCode.address == 0xFB);
+    assert(noisyCode.command == hisenseCmd);
 }
 
 void testMultiChunkPayloadAssembly() {

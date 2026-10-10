@@ -14,4 +14,6 @@ target_include_directories(ir_tui_test PRIVATE
 
 target_link_libraries(ir_tui_test PRIVATE
     ir_core
+    httplib::httplib
+    nlohmann_json::nlohmann_json
 )

@@ -22,7 +22,7 @@ int main(int argc, char* argv[]) {
                 return 1;
             }
         } else if (arg == "--help" || arg == "-h") {
-            std::cout << "Usage: ir_tui_test [OPTIONS]\n"
+            std::cout << "Usage: ir_tui [OPTIONS]\n"
                       << "Options:\n"
                       << "  --api, -a <url>     Set API server base URL (default: " << apiUrl << ")\n"
                       << "  --read, -r          Capture a single IR signal via API and exit\n"

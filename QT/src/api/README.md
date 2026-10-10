@@ -1,6 +1,6 @@
 # `ir_api` — Embedded HTTP REST API Server
 
-The `ir_api` module provides an embedded, cross-platform HTTP REST API server for the IR Transceiver application. Powered by modern C++17, [`cpp-httplib`](https://github.com/yhirose/cpp-httplib), and [`nlohmann/json`](https://github.com/nlohmann/json), it enables remote clients, home automation systems (Home Assistant, Node-RED), web dashboards, and the console test tool (`ir_tui_test`) to control hardware transmission, monitor connection states, read captured signals, and manage saved remote control profiles over standard HTTP JSON endpoints.
+The `ir_api` module provides an embedded, cross-platform HTTP REST API server for the IR Transceiver application. Powered by modern C++17, [`cpp-httplib`](https://github.com/yhirose/cpp-httplib), and [`nlohmann/json`](https://github.com/nlohmann/json), it enables remote clients, home automation systems (Home Assistant, Node-RED), web dashboards, and the console test tool (`ir_tui`) to control hardware transmission, monitor connection states, read captured signals, and manage saved remote control profiles over standard HTTP JSON endpoints.
 
 ---
 
@@ -20,7 +20,7 @@ The `ir_api` module provides an embedded, cross-platform HTTP REST API server fo
   - [7. Signal Storage Management (`/api/v1/signals`)](#7-signal-storage-management-apiv1signals)
 - [Status & Error Codes](#-status--error-codes)
 - [💡 Practical Usage Examples](#-practical-usage-examples)
-  - [Terminal Console Client (`ir_tui_test`)](#terminal-console-client-ir_tui_test)
+  - [Terminal Console Client (`ir_tui`)](#terminal-console-client-ir_tui)
   - [cURL Command-Line Examples](#curl-command-line-examples)
   - [Python Client Script (`requests`)](#python-client-script-requests)
   - [JavaScript / Browser Fetch Example](#javascript--browser-fetch-example)
@@ -33,7 +33,7 @@ The `ir_api` module provides an embedded, cross-platform HTTP REST API server fo
 
 ```mermaid
 flowchart LR
-    Client["HTTP Clients\n(ir_tui_test / Browser / cURL / Home Assistant)"] -- "JSON REST (Port 8080)" --> API["HttpServerModule\n(cpp-httplib)"]
+    Client["HTTP Clients\n(ir_tui / Browser / cURL / Home Assistant)"] -- "JSON REST (Port 8080)" --> API["HttpServerModule\n(cpp-httplib)"]
     API -- "Thread-safe I/O" --> Driver["IrUsbTransceiver\n(libusb-1.0)"]
     API -- "CRUD JSON" --> Storage["SignalStorage\n(saved_ir_signals.json)"]
     Driver -- "Bulk/Interrupt EP" --> Hardware["Tiqiaa USB IR Hardware\nVID: 0x10C4 | PID: 0x8468"]
@@ -374,22 +374,22 @@ curl -X POST http://localhost:8080/api/v1/signals/0/send
 
 ## 💡 Practical Usage Examples
 
-### Terminal Console Client (`ir_tui_test`)
+### Terminal Console Client (`ir_tui`)
 
 The interactive console application communicates directly with this REST API:
 
 ```bash
 # Launch interactive TUI console connected to local API
-./build/debug/ir_tui_test --api http://127.0.0.1:8080
+./build/debug/ir_tui --api http://127.0.0.1:8080
 
 # Query hardware diagnostics via GET /api/v1/status
-./build/debug/ir_tui_test --info
+./build/debug/ir_tui --info
 
 # Perform a single-shot capture via POST /api/v1/capture
-./build/debug/ir_tui_test --read
+./build/debug/ir_tui --read
 
 # Transmit an IR command via POST /api/v1/send
-./build/debug/ir_tui_test --send "TV Power"
+./build/debug/ir_tui --send "TV Power"
 ```
 
 ### cURL Command-Line Examples

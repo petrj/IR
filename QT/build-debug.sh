@@ -25,7 +25,7 @@ cmake --build "${BUILD_DIR}" --parallel "${JOBS}"
 
 # 3. Copy the 3 built binaries directly into build/debug folder
 echo -e "\n[*] Copying the 3 built binaries to ${BUILD_DIR} folder..."
-for bin in ir_api_server ir_tui_test test_all; do
+for bin in ir_api_server ir_tui test_all; do
     src_bin=$(find "${BUILD_DIR}" -type f -name "${bin}" ! -path "${BUILD_DIR}/${bin}" | head -n 1)
     if [ -n "${src_bin}" ]; then
         cp -fv "${src_bin}" "${BUILD_DIR}/${bin}"
@@ -44,6 +44,6 @@ echo -e "\n========================================================"
 echo " DEBUG BUILD & TESTS COMPLETED SUCCESSFULLY!"
 echo " The 3 binaries are located in: ${BUILD_DIR}"
 echo "   - ${BUILD_DIR}/ir_api_server"
-echo "   - ${BUILD_DIR}/ir_tui_test"
+echo "   - ${BUILD_DIR}/ir_tui"
 echo "   - ${BUILD_DIR}/test_all"
 echo "========================================================"

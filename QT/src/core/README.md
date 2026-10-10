@@ -41,7 +41,7 @@ Designed with **zero Qt dependencies**, `ir_core` relies strictly on the C++17 S
 flowchart TD
     subgraph Frontends["Application Frontends"]
         QML["QML / Qt Quick UI"]
-        TUI["Console Test Tool (ir_tui_test)"]
+        TUI["Console Test Tool (ir_tui)"]
     end
 
     subgraph Service["Service Layer"]

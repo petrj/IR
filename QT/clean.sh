@@ -26,6 +26,7 @@ rm -f /tmp/test_api_storage.json \
 
 # Remove copied binaries from project root
 rm -f "${SCRIPT_DIR}/ir_api_server" \
+      "${SCRIPT_DIR}/ir_tui" \
       "${SCRIPT_DIR}/ir_tui_test" \
       "${SCRIPT_DIR}/test_all"
 

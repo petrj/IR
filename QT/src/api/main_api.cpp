@@ -9,14 +9,10 @@
 #include <atomic>
 
 static std::atomic<bool> g_shutdownRequested{false};
-static ir::HttpServerModule* g_serverInstance{nullptr};
 
 static void signalHandler(int signum) {
-    std::cout << "\n[ir_api_server] Received signal " << signum << ", shutting down gracefully...\n";
+    (void)signum;
     g_shutdownRequested.store(true);
-    if (g_serverInstance) {
-        g_serverInstance->stop();
-    }
 }
 
 static void printUsage(const char* progName) {
@@ -81,7 +77,6 @@ int main(int argc, char* argv[]) {
               << storage->getStoragePath() << "\n";
 
     ir::HttpServerModule server(transceiver, storage, config);
-    g_serverInstance = &server;
 
     // Register signal handlers
     std::signal(SIGINT, signalHandler);
@@ -104,8 +99,16 @@ int main(int argc, char* argv[]) {
     std::cout << "  curl -s http://127.0.0.1:" << config.port << "/api/v1/status\n\n";
     std::cout << "Press Ctrl+C to terminate server.\n";
 
-    // Wait until stopped
-    server.wait();
+    // Wait until shutdown requested
+    while (!g_shutdownRequested.load() && server.isRunning()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+
+    std::cout << "\n[ir_api_server] Shutting down gracefully...\n";
+    server.stop();
+    if (transceiver) {
+        transceiver->closeDevice();
+    }
 
     std::cout << "[ir_api_server] Server stopped. Exiting.\n";
     return 0;

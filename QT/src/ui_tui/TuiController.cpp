@@ -8,6 +8,9 @@
 #if defined(__unix__) || defined(__linux__) || defined(__APPLE__)
 #include <unistd.h>
 #include <termios.h>
+#include <poll.h>
+#elif defined(_WIN32)
+#include <conio.h>
 #endif
 
 namespace ir {
@@ -17,6 +20,20 @@ static void flushTerminalInput() {
     if (isatty(fileno(stdin))) {
         tcflush(fileno(stdin), TCIFLUSH);
     }
+#endif
+}
+
+static bool checkStdinHasInput() {
+#if defined(_WIN32)
+    return _kbhit() != 0;
+#elif defined(__unix__) || defined(__linux__) || defined(__APPLE__)
+    struct pollfd pfd;
+    pfd.fd = fileno(stdin);
+    pfd.events = POLLIN;
+    pfd.revents = 0;
+    return poll(&pfd, 1, 0) > 0;
+#else
+    return false;
 #endif
 }
 
@@ -180,7 +197,7 @@ void TuiController::handleReceivedSignal(const IrSignal& sig, const std::string&
         displaySignalDetails(sig, title, "");
         std::cout << "[INFO] Signal is not in saved library.\n";
         if (promptIfNew) {
-            std::cout << "Enter signal name to save (press Enter for default name): " << std::flush;
+            std::cout << "Enter signal name to save (press Enter to skip): " << std::flush;
             flushTerminalInput();
             std::string name;
             std::getline(std::cin, name);
@@ -194,7 +211,8 @@ void TuiController::handleReceivedSignal(const IrSignal& sig, const std::string&
             }
 
             if (name.empty()) {
-                name = "IR_Signal_" + std::to_string(m_storage.count() + 1);
+                std::cout << "[INFO] Signal not saved.\n";
+                return;
             }
 
             SavedIrSignal saved;
@@ -239,6 +257,11 @@ void TuiController::handleReceivedSignal(const IrSignal& sig, const std::string&
 }
 
 bool TuiController::captureOnce(float timeoutSeconds) {
+    if (!isDeviceConnected()) {
+        std::cerr << "[ERROR] Cannot capture: IR Transceiver hardware is not connected.\n";
+        return false;
+    }
+
     auto client = createClient(static_cast<int>(timeoutSeconds) + 5);
     if (!client) {
         std::cerr << "[ERROR] Could not initialize HTTP client.\n";
@@ -288,30 +311,15 @@ bool TuiController::captureOnce(float timeoutSeconds) {
 }
 
 void TuiController::startContinuousMonitor() {
+    if (!isDeviceConnected()) {
+        std::cerr << "[ERROR] Cannot start continuous monitor: IR Transceiver hardware is not connected.\n";
+        return;
+    }
+
     auto client = createClient(5);
     if (!client) {
         std::cerr << "[ERROR] Could not connect to API server at " << m_apiBaseUrl << ".\n";
         return;
-    }
-
-    // Tell server to start background polling
-    nlohmann::json modeReq = {{"mode", "start_polling"}};
-    auto modeRes = client->Post("/api/v1/mode", modeReq.dump(), "application/json");
-    if (!modeRes || (modeRes->status != 200 && modeRes->status != 500)) {
-        std::cerr << "[ERROR] Failed to start background polling on API server.\n";
-        return;
-    }
-
-    // Drain any old buffered signals
-    while (true) {
-        auto drainRes = client->Get("/api/v1/receive");
-        if (!drainRes || drainRes->status != 200) break;
-        try {
-            auto j = nlohmann::json::parse(drainRes->body);
-            if (!j.value("available", false)) break;
-        } catch (...) {
-            break;
-        }
     }
 
     std::cout << "\n=======================================================\n";
@@ -320,41 +328,49 @@ void TuiController::startContinuousMonitor() {
     std::cout << "=======================================================\n";
 
     m_monitoring = true;
-    std::thread pollThread([this]() {
-        auto pollClient = createClient(3);
-        while (m_monitoring.load()) {
-            if (pollClient) {
-                auto res = pollClient->Get("/api/v1/receive");
-                if (res && res->status == 200) {
-                    try {
-                        auto j = nlohmann::json::parse(res->body);
-                        if (j.value("available", false) && j.contains("signal")) {
-                            IrSignal sig;
-                            sig.pulses = j["signal"]["pulses"].get<std::vector<int>>();
-                            sig.frequency_khz = static_cast<uint8_t>(j["signal"].value("frequency", 38));
-                            sig.timestamp = std::chrono::system_clock::now();
-                            handleReceivedSignal(sig, "SIGNAL CAPTURED (CONTINUOUS MONITOR)", false);
-                        }
-                    } catch (...) {}
-                }
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    while (m_monitoring.load()) {
+        if (checkStdinHasInput()) {
+            std::string dummy;
+            std::getline(std::cin, dummy);
+            break;
         }
-    });
 
-    // Wait for user to hit enter
-    std::string dummy;
-    std::getline(std::cin, dummy);
+        auto pollClient = createClient(4);
+        if (!pollClient) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            continue;
+        }
 
-    m_monitoring = false;
-    if (pollThread.joinable()) {
-        pollThread.join();
+        nlohmann::json reqBody = {{"timeout", 1.5f}};
+        auto res = pollClient->Post("/api/v1/capture", reqBody.dump(), "application/json");
+
+        if (checkStdinHasInput()) {
+            std::string dummy;
+            std::getline(std::cin, dummy);
+            break;
+        }
+
+        if (res && res->status == 200) {
+            try {
+                auto j = nlohmann::json::parse(res->body);
+                if (j.contains("signal") && j["signal"].contains("pulses")) {
+                    IrSignal sig;
+                    sig.pulses = j["signal"]["pulses"].get<std::vector<int>>();
+                    sig.frequency_khz = static_cast<uint8_t>(j["signal"].value("frequency", 38));
+                    sig.timestamp = std::chrono::system_clock::now();
+                    handleReceivedSignal(sig, "SIGNAL CAPTURED (CONTINUOUS MONITOR)", true);
+                    std::cout << "\n>>> Continuing monitor... (Press ENTER to return to menu)\n" << std::flush;
+                }
+            } catch (...) {}
+        } else if (res && res->status == 503) {
+            std::cerr << "[ERROR] Transceiver disconnected. Stopping continuous monitor.\n";
+            break;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
 
-    // Tell server to stop background polling
-    nlohmann::json stopReq = {{"mode", "stop_polling"}};
-    client->Post("/api/v1/mode", stopReq.dump(), "application/json");
-
+    m_monitoring = false;
     std::cout << "[INFO] Continuous monitor stopped.\n";
 }
 
@@ -365,11 +381,21 @@ void TuiController::saveLastCapturedSignal() {
     }
 
     std::cout << "\nSave Signal:\n";
-    std::cout << "Enter a friendly name (e.g., 'TV Power', 'Audio Volume Up'): " << std::flush;
+    std::cout << "Enter a friendly name (press Enter to cancel): " << std::flush;
     std::string name;
     std::getline(std::cin, name);
+
+    size_t first = name.find_first_not_of(" \t\r\n");
+    if (first != std::string::npos) {
+        size_t last = name.find_last_not_of(" \t\r\n");
+        name = name.substr(first, last - first + 1);
+    } else {
+        name.clear();
+    }
+
     if (name.empty()) {
-        name = "IR_Signal_" + std::to_string(m_storage.count() + 1);
+        std::cout << "[INFO] Signal not saved.\n";
+        return;
     }
 
     SavedIrSignal saved;

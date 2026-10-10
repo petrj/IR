@@ -423,8 +423,18 @@ std::string IrUsbTransceiver::getFirmwareVersion() {
 
     std::vector<uint8_t> resp;
     if (readData(resp, 1000) && !resp.empty()) {
-        std::string version(resp.begin(), resp.end());
-        return version;
+        std::string version;
+        for (uint8_t b : resp) {
+            if (b >= 32 && b <= 126) {
+                version.push_back(static_cast<char>(b));
+            }
+        }
+        size_t first = version.find_first_not_of(" \t\r\n");
+        if (first != std::string::npos) {
+            size_t last = version.find_last_not_of(" \t\r\n");
+            version = version.substr(first, last - first + 1);
+        }
+        return version.empty() ? "Unknown" : version;
     }
     return "Unknown";
 }

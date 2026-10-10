@@ -134,6 +134,9 @@ void HttpServerModule::stop() {
         }
         m_running.store(false);
     }
+    if (m_transceiver) {
+        m_transceiver->stopBackgroundPolling();
+    }
 }
 
 void HttpServerModule::wait() {
@@ -217,45 +220,65 @@ void HttpServerModule::handleGetStatus(const httplib::Request&, httplib::Respons
         return;
     }
 
-    DeviceInfo info = m_transceiver->getDeviceInfo();
-    DeviceState st = m_transceiver->getState();
-    std::string stateStr = "Disconnected";
-    switch (st) {
-        case DeviceState::Disconnected: stateStr = "Disconnected"; break;
-        case DeviceState::Idle: stateStr = "Idle"; break;
-        case DeviceState::Receiving: stateStr = "Receiving"; break;
-        case DeviceState::Transmitting: stateStr = "Transmitting"; break;
-        case DeviceState::Error: stateStr = "Error"; break;
+    try {
+        DeviceInfo info = m_transceiver->getDeviceInfo();
+        DeviceState st = m_transceiver->getState();
+        std::string stateStr = "Disconnected";
+        switch (st) {
+            case DeviceState::Disconnected: stateStr = "Disconnected"; break;
+            case DeviceState::Idle: stateStr = "Idle"; break;
+            case DeviceState::Receiving: stateStr = "Receiving"; break;
+            case DeviceState::Transmitting: stateStr = "Transmitting"; break;
+            case DeviceState::Error: stateStr = "Error"; break;
+        }
+
+        auto sanitizeAscii = [](const std::string& str) -> std::string {
+            std::string out;
+            for (char c : str) {
+                if (static_cast<unsigned char>(c) >= 32 && static_cast<unsigned char>(c) <= 126) {
+                    out.push_back(c);
+                }
+            }
+            return out;
+        };
+
+        std::ostringstream vidSs, pidSs;
+        vidSs << "0x" << std::uppercase << std::hex << std::setw(4) << std::setfill('0') << info.vendorId;
+        pidSs << "0x" << std::uppercase << std::hex << std::setw(4) << std::setfill('0') << info.productId;
+
+        std::string fw = "N/A";
+        if (m_transceiver->isConnected()) {
+            fw = sanitizeAscii(m_transceiver->getFirmwareVersion());
+            if (fw.empty()) fw = "Unknown";
+        }
+
+        nlohmann::json j;
+        j["connected"] = m_transceiver->isConnected();
+        j["state"] = stateStr;
+        j["device"] = {
+            {"vendorId", vidSs.str()},
+            {"productId", pidSs.str()},
+            {"manufacturer", sanitizeAscii(info.manufacturer)},
+            {"product", sanitizeAscii(info.product)},
+            {"serialNumber", sanitizeAscii(info.serialNumber)},
+            {"defaultFrequency", static_cast<int>(info.defaultFrequency)},
+            {"firmwareVersion", fw}
+        };
+
+        if (m_storage) {
+            j["savedSignalsCount"] = m_storage->count();
+        }
+
+        res.status = 200;
+        res.set_content(j.dump(2), "application/json");
+    } catch (const std::exception& e) {
+        res.status = 200;
+        nlohmann::json fallback = {
+            {"connected", m_transceiver ? m_transceiver->isConnected() : false},
+            {"state", "Connected"}
+        };
+        res.set_content(fallback.dump(2), "application/json");
     }
-
-    std::ostringstream vidSs, pidSs;
-    vidSs << "0x" << std::uppercase << std::hex << std::setw(4) << std::setfill('0') << info.vendorId;
-    pidSs << "0x" << std::uppercase << std::hex << std::setw(4) << std::setfill('0') << info.productId;
-
-    nlohmann::json j;
-    j["connected"] = m_transceiver->isConnected();
-    j["state"] = stateStr;
-    j["device"] = {
-        {"vendorId", vidSs.str()},
-        {"productId", pidSs.str()},
-        {"manufacturer", info.manufacturer},
-        {"product", info.product},
-        {"serialNumber", info.serialNumber},
-        {"defaultFrequency", static_cast<int>(info.defaultFrequency)}
-    };
-
-    if (m_transceiver->isConnected()) {
-        j["device"]["firmwareVersion"] = m_transceiver->getFirmwareVersion();
-    } else {
-        j["device"]["firmwareVersion"] = "N/A";
-    }
-
-    if (m_storage) {
-        j["savedSignalsCount"] = m_storage->count();
-    }
-
-    res.status = 200;
-    res.set_content(j.dump(2), "application/json");
 }
 
 void HttpServerModule::handlePostSend(const httplib::Request& req, httplib::Response& res) {

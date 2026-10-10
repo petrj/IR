@@ -126,6 +126,29 @@ void testTiqiaaPayloadEncodingAndDecoding() {
     bool okInternal = ir::IrProtocol::decodeTiqiaaPayload(frameWithInternalEn, decodedWithInternalEn);
     assert(okInternal);
     assert(decodedWithInternalEn.pulses.size() >= 3);
+
+    // 3. Test decoding user's Hisense TV capture raw hex payload with 0xFF frequency byte and 72-pulse repeat frame
+    std::string rawHexHisense = "53540044ffffffffc17f7f1da423a522a522a423a423a622a423a423a469a667a469a667a423a469a469a469a469a567a469a423a522a423a622a423a622a622a622a468a567a469a667a468a47f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f18ffffffffc27f0ea613454e";
+    std::vector<uint8_t> hisenseRawBytes;
+    for (size_t i = 0; i < rawHexHisense.length(); i += 2) {
+        hisenseRawBytes.push_back(static_cast<uint8_t>(std::stoul(rawHexHisense.substr(i, 2), nullptr, 16)));
+    }
+    ir::IrSignal decodedHisenseSig;
+    bool hisenseRawOk = ir::IrProtocol::decodeTiqiaaPayload(hisenseRawBytes, decodedHisenseSig);
+    assert(hisenseRawOk);
+    assert(decodedHisenseSig.frequency_khz == 38); // Sanitized from 0xFF (255) to 38 kHz
+    assert(decodedHisenseSig.pulses.size() == 68); // Normalized from 72 to 68 pulses
+
+    ir::DecodedCode hisenseParsedCode;
+    bool parsedHisenseOk = ir::IrProtocol::decodeNec(decodedHisenseSig.pulses, hisenseParsedCode);
+    assert(parsedHisenseOk);
+    assert(hisenseParsedCode.address == 0xEF00);
+    assert(hisenseParsedCode.command == 0x07);
+
+    // 4. Test encoding with uninitialized / out-of-band frequency (0xFF) sanitizes to 38 kHz
+    auto encUnsanitizedFreq = ir::IrProtocol::encodeTiqiaaPayload(originalPulses, 0xFF);
+    assert(!encUnsanitizedFreq.empty());
+    assert(encUnsanitizedFreq[0] == 38);
 }
 
 void testNecProtocolCodec() {
@@ -180,6 +203,30 @@ void testNecProtocolCodec() {
     assert(noisyOk);
     assert(noisyCode.address == 0xFB);
     assert(noisyCode.command == hisenseCmd);
+
+    // 5. Hisense TV remote captured 72-pulse signal (68 NEC pulses + repeat frame header)
+    std::vector<int> hisenseCaptured72 = {
+        9000, -4528, 576, -560, 592, -544, 592, -544, 576, -560, 576, -560, 608, -544, 576, -560, 576, -560,
+        576, -1680, 608, -1648, 576, -1680, 608, -1648, 576, -560, 576, -1680, 576, -1680, 576, -1680,
+        576, -1680, 592, -1648, 576, -1680, 576, -560, 592, -544, 576, -560, 608, -544, 576, -560,
+        608, -544, 608, -544, 608, -544, 576, -1664, 592, -1648, 576, -1680, 608, -1648, 576, -1664,
+        576, -41024, 9184, -2256, 608, -304
+    };
+    assert(hisenseCaptured72.size() == 72);
+    bool normOk = ir::IrProtocol::normalizeNec(hisenseCaptured72);
+    assert(normOk);
+    assert(hisenseCaptured72.size() == 68);
+    assert(hisenseCaptured72[0] == 9000);
+    assert(hisenseCaptured72[1] == -4500);
+    assert(hisenseCaptured72[66] == 560);
+    assert(hisenseCaptured72[67] == -40000);
+
+    ir::DecodedCode hisenseNormDecoded;
+    bool hisenseNormDecOk = ir::IrProtocol::decodeNec(hisenseCaptured72, hisenseNormDecoded);
+    assert(hisenseNormDecOk);
+    assert(hisenseNormDecoded.protocol == ir::IrProtocolType::NEC);
+    assert(hisenseNormDecoded.address == 0xEF00);
+    assert(hisenseNormDecoded.command == 0x07);
 }
 
 void testMultiChunkPayloadAssembly() {

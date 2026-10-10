@@ -59,6 +59,14 @@ public:
     static void fixLeadingMark(std::vector<int>& pulses, bool verbose = false);
 
     /**
+     * @brief Normalizes a 32-bit NEC pulse sequence to standard 68 pulses at 38 kHz.
+     * Snaps AGC leader mark (9000 us), leader space (-4500 us), standardizes data bits,
+     * adds standard stop bit (560 us, -40000 us), and trims any trailing repeat frames or noise.
+     * @return true if sequence was a valid NEC 32-bit frame and normalized to 68 pulses.
+     */
+    static bool normalizeNec(std::vector<int>& pulses, bool verbose = false);
+
+    /**
      * @brief Encodes pulse timings (in microseconds) to Tiqiaa USB device payload bytes.
      * Each pulse duration is converted to 16 us units. Byte bit 7 (0x80) indicates state (ON/OFF).
      * Values > 127 units are split across multiple bytes.

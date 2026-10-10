@@ -66,9 +66,89 @@ void IrProtocol::fixLeadingMark(std::vector<int>& pulses, bool verbose) {
     }
 }
 
+bool IrProtocol::normalizeNec(std::vector<int>& pulses, bool verbose) {
+    if (pulses.size() < 4) {
+        return false;
+    }
+
+    size_t startIdx = 0;
+    while (startIdx < pulses.size() && pulses[startIdx] <= 0) {
+        startIdx++;
+    }
+    if (startIdx + 3 >= pulses.size()) {
+        return false;
+    }
+
+    if (startIdx + 4 < pulses.size() && pulses[startIdx] > 0 && pulses[startIdx] < 400 &&
+        pulses[startIdx + 1] < 0 && pulses[startIdx + 2] >= 6000) {
+        startIdx += 2;
+    }
+
+    int leaderMark = pulses[startIdx];
+    int leaderSpace = std::abs(pulses[startIdx + 1]);
+
+    if (leaderMark < 6500 || leaderMark > 11500) {
+        return false;
+    }
+
+    if (leaderSpace < 3000 || leaderSpace > 6000) {
+        return false;
+    }
+
+    if (startIdx + 2 + 64 > pulses.size()) {
+        return false;
+    }
+
+    std::vector<int> normalized;
+    normalized.reserve(68);
+    normalized.push_back(9000);
+    normalized.push_back(-4500);
+
+    size_t bitCount = 0;
+    for (size_t i = startIdx + 2; i + 1 < pulses.size() && bitCount < 32; i += 2) {
+        int mark = pulses[i];
+        int space = std::abs(pulses[i + 1]);
+
+        if (mark < 180 || mark > 1100) {
+            return false;
+        }
+
+        normalized.push_back(560);
+        if (space >= 180 && space < 1050) {
+            normalized.push_back(-560);
+            bitCount++;
+        } else if (space >= 1050 && space <= 2500) {
+            normalized.push_back(-1690);
+            bitCount++;
+        } else {
+            return false;
+        }
+    }
+
+    if (bitCount != 32) {
+        return false;
+    }
+
+    normalized.push_back(560);
+    normalized.push_back(-40000);
+
+    if (verbose && pulses.size() != 68) {
+        std::cout << "[IrProtocol] Normalized NEC frame from " << pulses.size()
+                  << " pulses to standard 68 pulses\n";
+    }
+
+    pulses = std::move(normalized);
+    return true;
+}
+
 std::vector<uint8_t> IrProtocol::encodeTiqiaaPayload(const std::vector<int>& pulses, uint8_t frequency_khz) {
+    if (frequency_khz == 0 || frequency_khz == 0xFF || frequency_khz > 60 || frequency_khz < 20) {
+        frequency_khz = 38;
+    }
+
     std::vector<int> fixedPulses = pulses;
     fixLeadingMark(fixedPulses);
+    normalizeNec(fixedPulses);
 
     std::vector<uint8_t> extraBytes;
     extraBytes.push_back(frequency_khz);
@@ -113,6 +193,10 @@ bool IrProtocol::decodeTiqiaaPayload(const std::vector<uint8_t>& payload, IrSign
     }
 
     uint8_t frequency_khz = payload[dPos + 1];
+    // Hardware transceiver reports 0xFF during reception; default to standard 38 kHz
+    if (frequency_khz == 0 || frequency_khz == 0xFF || frequency_khz > 60 || frequency_khz < 20) {
+        frequency_khz = 38;
+    }
     size_t irDataStart = dPos + 2;
 
     // Locate 'EN' terminator (0x45, 0x4E) searching backwards from the end of payload
@@ -179,6 +263,9 @@ bool IrProtocol::decodeTiqiaaPayload(const std::vector<uint8_t>& payload, IrSign
     }
 
     fixLeadingMark(pulses, verbose);
+    if (normalizeNec(pulses, verbose)) {
+        frequency_khz = 38;
+    }
 
     outSignal.pulses = std::move(pulses);
     outSignal.frequency_khz = frequency_khz;

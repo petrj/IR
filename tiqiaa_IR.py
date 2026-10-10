@@ -312,12 +312,83 @@ class TiqiaaTview:
         return pulses
 
     #
+    # Normalize NEC pulse sequence to standard 68 pulses (38 kHz)
+    #
+    @staticmethod
+    def normalize_nec(pulses, verbose=False):
+        """
+        Normalizes a captured or raw NEC pulse sequence into standard NEC timings:
+        - 9000 us mark, 4500 us space leader
+        - 32 bits (560 us mark, 560 us space for '0'; 560 us mark, 1690 us space for '1')
+        - 560 us stop mark, 40000 us trailing space
+        - Guarantees exactly 68 pulses by discarding any trailing repeat frames or noise glitches.
+        Returns the normalized list of pulses if valid NEC 32-bit, or original pulses otherwise.
+        """
+        if len(pulses) < 4:
+            return pulses
+
+        start_idx = 0
+        while start_idx < len(pulses) and pulses[start_idx] <= 0:
+            start_idx += 1
+        if start_idx + 3 >= len(pulses):
+            return pulses
+
+        # Skip leading noise glitch before leader if present (< 400us mark + space followed by leader >= 6000us)
+        if (start_idx + 4 < len(pulses) and pulses[start_idx] > 0 and pulses[start_idx] < 400
+                and pulses[start_idx + 1] < 0 and pulses[start_idx + 2] >= 6000):
+            start_idx += 2
+
+        leader_mark = pulses[start_idx]
+        leader_space = abs(pulses[start_idx + 1])
+
+        if not (6500 <= leader_mark <= 11500) or not (3000 <= leader_space <= 6000):
+            return pulses
+
+        if start_idx + 2 + 64 > len(pulses):
+            return pulses
+
+        normalized = [9000, -4500]
+        bit_count = 0
+        i = start_idx + 2
+        while i + 1 < len(pulses) and bit_count < 32:
+            mark = pulses[i]
+            space = abs(pulses[i + 1])
+            if not (180 <= mark <= 1100):
+                return pulses
+            normalized.append(560)
+            if 180 <= space < 1050:
+                normalized.append(-560)
+                bit_count += 1
+            elif 1050 <= space <= 2500:
+                normalized.append(-1690)
+                bit_count += 1
+            else:
+                return pulses
+            i += 2
+
+        if bit_count != 32:
+            return pulses
+
+        normalized.append(560)
+        normalized.append(-40000)
+
+        if verbose and len(pulses) != 68:
+            print(f"[INFO] Normalized NEC frame from {len(pulses)} pulses to standard 68 pulses")
+
+        return normalized
+
+    #
     # send IR data (transmit)
     #
     def transmit_ir(self, pulse_array, frequency_khz=38):
+        # Sanitize carrier frequency (defaults 0, 0xFF, or invalid frequencies to standard 38 kHz)
+        if not frequency_khz or frequency_khz == 0xFF or frequency_khz > 60 or frequency_khz < 20:
+            frequency_khz = 38
+
         # Repair a short leading header that the receiver under-measured at
         # capture time, so previously stored codes also transmit reliably.
         pulse_array = self.fix_leading_mark(list(pulse_array))
+        pulse_array = self.normalize_nec(pulse_array, verbose=True)
 
         # Activate transmit mode right before sending the data
         self.start_transmit()
@@ -388,7 +459,11 @@ class TiqiaaTview:
 
         # The frequency byte comes right after 'D'
         freq_byte = payload[pos+1]
-        if testing:
+        if freq_byte in (0x00, 0xFF) or freq_byte < 20 or freq_byte > 60:
+            if testing:
+                print(f"[TESTING] Frequency byte reported as 0x{freq_byte:02X} ({freq_byte} kHz), defaulting to standard 38 kHz")
+            freq_byte = 38
+        elif testing:
             print(f"[TESTING] Frequency byte: 0x{freq_byte:02X} ({freq_byte} kHz)")
 
         # IR data starts after the frequency byte
@@ -449,6 +524,7 @@ class TiqiaaTview:
 
         # 3. Correct the short leading AGC header mark (see fix_leading_mark()).
         self.fix_leading_mark(pulses, verbose=testing or print_result)
+        pulses = self.normalize_nec(pulses, verbose=testing or print_result)
 
         pulse_str = ", ".join(map(str, pulses))
 

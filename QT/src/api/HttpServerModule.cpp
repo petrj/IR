@@ -410,8 +410,17 @@ void HttpServerModule::handlePostSend(const httplib::Request& req, httplib::Resp
             uint32_t addr = 0;
             uint32_t cmd = 0;
             try {
-                if (j["address"].is_number()) addr = j["address"].get<uint32_t>();
-                else if (j["address"].is_string()) addr = static_cast<uint32_t>(std::stoul(j["address"].get<std::string>(), nullptr, 0));
+                if (j["address"].is_number()) {
+                    addr = j["address"].get<uint32_t>();
+                } else if (j["address"].is_string()) {
+                    std::string addrStr = j["address"].get<std::string>();
+                    addr = static_cast<uint32_t>(std::stoul(addrStr, nullptr, 0));
+                    // If user specified "0x00XX" with 4 hex digits (e.g., Hisense "0x00BF"), map to 16-bit extended address
+                    if ((addrStr.rfind("0x00", 0) == 0 || addrStr.rfind("0X00", 0) == 0) && addrStr.length() == 6) {
+                        uint32_t byte1 = static_cast<uint32_t>(std::stoul(addrStr.substr(4), nullptr, 16));
+                        addr = (byte1 << 8) | 0x00;
+                    }
+                }
 
                 if (j["command"].is_number()) cmd = j["command"].get<uint32_t>();
                 else if (j["command"].is_string()) cmd = static_cast<uint32_t>(std::stoul(j["command"].get<std::string>(), nullptr, 0));

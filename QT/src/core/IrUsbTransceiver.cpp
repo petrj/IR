@@ -483,7 +483,10 @@ bool IrUsbTransceiver::startTransmit() {
 
 bool IrUsbTransceiver::transmitIr(const std::vector<int>& pulses, uint8_t frequency_khz) {
     if (pulses.empty()) return false;
-    uint8_t freq = (frequency_khz > 0) ? frequency_khz : m_defaultFrequency;
+    uint8_t freq = (frequency_khz > 0 && frequency_khz != 0xFF) ? frequency_khz : m_defaultFrequency;
+    if (freq == 0 || freq == 0xFF || freq > 60 || freq < 20) {
+        freq = 38;
+    }
 
     stopBackgroundPolling();
 
@@ -541,13 +544,13 @@ bool IrUsbTransceiver::captureOnce(IrSignal& outSignal, float timeoutSeconds) {
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
         std::vector<uint8_t> payload;
-        if (readPayload(payload, 300)) {
+        if (readPayload(payload, 800)) {
             if (IrProtocol::decodeTiqiaaPayload(payload, outSignal)) {
                 captured = true;
                 break;
             }
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        std::this_thread::sleep_for(std::chrono::milliseconds(150));
     }
 
     sendCommand('L');
@@ -604,7 +607,7 @@ void IrUsbTransceiver::pollingLoop() {
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
             std::vector<uint8_t> payload;
-            if (readPayload(payload, 300)) {
+            if (readPayload(payload, 800)) {
                 if (IrProtocol::decodeTiqiaaPayload(payload, sig)) {
                     gotSignal = true;
                 }

@@ -70,20 +70,19 @@ sudo apt install build-essential cmake libusb-1.0-0-dev libcpp-httplib-dev nlohm
 ### Building the Server & Tests
 ```bash
 mkdir -p build && cd build
-cmake ..
-cmake --build . --target ir_api_server test_ir_api --parallel
+cmake --build . --target ir_api_server test_all --parallel
 ```
 
 ### Running the Standalone API Server
 ```bash
-./ir_api_server --port 8080 --host 0.0.0.0
+./src/api/ir_api_server --port 8080 --host 0.0.0.0
 ```
 
-### Running the API Unit & Integration Tests
+### Running the Unified Unit & Integration Tests
 ```bash
-./test_ir_api
+./tests/test_all
 # Or via CTest:
-ctest -R ir_api_unit_tests --output-on-failure
+ctest --output-on-failure
 ```
 
 ---

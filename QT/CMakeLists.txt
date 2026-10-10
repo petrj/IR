@@ -19,40 +19,61 @@ endif()
 # Enable IDE folders grouping (for Qt Creator, Visual Studio, Xcode)
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
-# Dependencies
-find_package(Threads REQUIRED)
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(LIBUSB REQUIRED IMPORTED_TARGET libusb-1.0)
+# Place all built binaries directly into the root build directory (build/debug or build/release)
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 
-# Embedded REST API Dependencies (cpp-httplib & nlohmann_json)
-find_package(nlohmann_json 3.2.0 QUIET)
-if(NOT nlohmann_json_FOUND)
-    include(FetchContent)
-    message(STATUS "nlohmann_json not found on system; fetching via FetchContent...")
-    FetchContent_Declare(
-        nlohmann_json
-        GIT_REPOSITORY https://github.com/nlohmann/json.git
-        GIT_TAG v3.11.3
-        GIT_SHALLOW TRUE
+# ----------------------------------------------------------------------------
+# 1. Threads Library Check
+# ----------------------------------------------------------------------------
+find_package(Threads REQUIRED)
+
+# ----------------------------------------------------------------------------
+# 2. PkgConfig & libusb-1.0 Dependency Check
+# ----------------------------------------------------------------------------
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(LIBUSB IMPORTED_TARGET libusb-1.0)
+if(NOT LIBUSB_FOUND)
+    message(FATAL_ERROR
+        "\n======================================================================\n"
+        "[BUILD ERROR] Missing dependency: libusb-1.0\n"
+        "Please install the required Debian package:\n"
+        "  sudo apt install libusb-1.0-0-dev\n"
+        "======================================================================\n"
     )
-    FetchContent_MakeAvailable(nlohmann_json)
 endif()
 
+# ----------------------------------------------------------------------------
+# 3. JSON Library (nlohmann_json) Dependency Check
+# ----------------------------------------------------------------------------
+find_package(nlohmann_json 3.2.0 QUIET)
+if(NOT nlohmann_json_FOUND)
+    message(FATAL_ERROR
+        "\n======================================================================\n"
+        "[BUILD ERROR] Missing dependency: nlohmann-json (nlohmann_json)\n"
+        "Please install the required Debian package:\n"
+        "  sudo apt install nlohmann-json3-dev\n"
+        "======================================================================\n"
+    )
+endif()
+
+# ----------------------------------------------------------------------------
+# 4. HTTP Server Library (cpp-httplib) Dependency Check
+# ----------------------------------------------------------------------------
 find_package(httplib QUIET)
 if(NOT httplib_FOUND)
     pkg_check_modules(HTTPLIB IMPORTED_TARGET cpp-httplib)
     if(TARGET PkgConfig::HTTPLIB)
         add_library(httplib::httplib ALIAS PkgConfig::HTTPLIB)
     else()
-        include(FetchContent)
-        message(STATUS "cpp-httplib not found on system; fetching via FetchContent...")
-        FetchContent_Declare(
-            httplib
-            GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
-            GIT_TAG v0.18.7
-            GIT_SHALLOW TRUE
+        message(FATAL_ERROR
+            "\n======================================================================\n"
+            "[BUILD ERROR] Missing dependency: cpp-httplib (httplib)\n"
+            "Please install the required Debian package:\n"
+            "  sudo apt install libcpp-httplib-dev\n"
+            "======================================================================\n"
         )
-        FetchContent_MakeAvailable(httplib)
     endif()
 endif()
 

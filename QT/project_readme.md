@@ -78,8 +78,8 @@ IR-QtApp/
 │       ├── SignalStorage.cpp     # JSON persistence for remote signals
 │       └── SignalStorage.h
 ├── tests/                        # Automated unit & integration tests
-│   ├── test_core.cpp             # Core driver & codec tests
-│   └── test_api.cpp              # REST API server endpoint tests
+│   ├── CMakeLists.txt            # Test configuration (test_all target)
+│   └── test_all.cpp              # Unified test suite (IR Core + REST API)
 └── android/                      # Android NDK & Java JNI files
     └── src/org/qtproject/example/UsbPermissionActivity.java
 ```
@@ -152,11 +152,25 @@ cmake --build . --target ir_api_server
 # Build the TUI test tool
 cmake --build . --target ir_tui_test
 
-# Build unit tests
-cmake --build . --target test_ir_core test_ir_api
+# Build unified test suite (IR Core + REST API)
+cmake --build . --target test_all
 
 # Run all test suites via CTest
 ctest --output-on-failure
+```
+
+### 4. Build & Cleanup Helper Scripts
+Convenience scripts are provided in the project root:
+
+```bash
+# Build & test in Debug mode (build/debug)
+./build-debug.sh
+
+# Build & test in Release mode (build/release)
+./build-release.sh
+
+# Clean all build artifacts and delete the build/ directory
+./clean.sh
 ```
 
 ---

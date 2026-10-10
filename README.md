@@ -66,6 +66,16 @@ Run the script using the included shell script:
 ./run.sh
 ```
 
+Terminal command:
+```
+V="10c4"; P="8468"; \
+echo 'SUBSYSTEM=="usb", ATTR{idVendor}=="'$V'", ATTRS{idProduct}=="'$P'", MODE="0666", GROUP="plugdev"' \
+| sudo tee /etc/udev/rules.d/99-usb-$V-$P.rules > /dev/null && \
+sudo usermod -aG plugdev $USER && \
+sudo udevadm control --reload-rules && \
+sudo udevadm trigger
+```
+
 You will be presented with an interactive menu:
 ```
 === MAIN MENU ===

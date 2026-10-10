@@ -139,6 +139,7 @@ bool IrUsbTransceiver::openDevice() {
 
     setState(DeviceState::Idle);
     log("Interface claimed successfully. Device Ready.");
+    flushInputBuffer();
 
     return true;
 }
@@ -246,8 +247,8 @@ bool IrUsbTransceiver::sendBulk(const std::vector<uint8_t>& data) {
             return false;
         }
 
-        // Small inter-fragment sleep required by device MCU
-        std::this_thread::sleep_for(std::chrono::milliseconds(15));
+        // Inter-fragment sleep required by device MCU (150ms matching tiqiaa_IR.py)
+        std::this_thread::sleep_for(std::chrono::milliseconds(150));
     }
 
     m_usbPackCounter++;
@@ -324,45 +325,91 @@ bool IrUsbTransceiver::readPayload(std::vector<uint8_t>& outPayload, unsigned in
     }
 
     uint8_t reportId = firstPacket[0];
-    uint8_t fragLen = firstPacket[1] - 3;
+    uint8_t fragLen = (firstPacket.size() > 1 && firstPacket[1] >= 3) ? (firstPacket[1] - 3) : 0;
     uint8_t totalChunks = firstPacket[3];
+    uint8_t chunkIdx = firstPacket[4];
+
+    auto hasEnTerminator = [](const std::vector<uint8_t>& p) {
+        if (p.size() < 2) return false;
+        for (size_t i = 0; i + 1 < p.size(); ++i) {
+            if (p[i] == 'E' && p[i + 1] == 'N') return true;
+        }
+        return false;
+    };
 
     if ((reportId == 0x01 || reportId == 0x02) && totalChunks > 1) {
+        // If totalChunks > 1, the first packet of a frame MUST be chunk index 1.
+        // If chunkIdx != 1, this is an orphaned fragment from a previous failed/interrupted frame.
+        if (chunkIdx != 1) {
+            log("Received orphaned USB fragment " + std::to_string(chunkIdx) + "/" +
+                std::to_string(totalChunks) + " as first packet, discarding and flushing buffer");
+            flushInputBuffer();
+            return false;
+        }
+
         std::vector<uint8_t> payload;
         size_t availableLen = std::min<size_t>(fragLen, firstPacket.size() - 5);
         payload.insert(payload.end(), firstPacket.begin() + 5, firstPacket.begin() + 5 + availableLen);
 
+        if (hasEnTerminator(payload)) {
+            outPayload = std::move(payload);
+            return true;
+        }
+
         int remaining = totalChunks - 1;
         int maxTimeouts = 4;
         int timeouts = 0;
+        // The hardware MCU is slow when delivering trailing fragments.
+        // We must use a dedicated trailing timeout of at least 1000ms (matching tiqiaa_IR.py)
+        // rather than the short 300ms polling timeout.
+        unsigned int trailingTimeoutMs = std::max(timeoutMs, 1000u);
 
+        uint8_t expectedChunkIdx = 2;
         while (remaining > 0) {
             std::vector<uint8_t> nextPacket;
-            if (readData(nextPacket, timeoutMs) && nextPacket.size() >= 5) {
-                uint8_t nextLen = nextPacket[1] - 3;
+            if (readData(nextPacket, trailingTimeoutMs) && nextPacket.size() >= 5) {
+                uint8_t nextReportId = nextPacket[0];
+                if (nextReportId != 0x01 && nextReportId != 0x02) {
+                    continue;
+                }
+
+                uint8_t nextLen = (nextPacket.size() > 1 && nextPacket[1] >= 3) ? (nextPacket[1] - 3) : 0;
+                uint8_t nextChunk = nextPacket[4];
+                if (nextChunk != expectedChunkIdx) {
+                    log("Warning: Received chunk index " + std::to_string(nextChunk) +
+                        " (expected " + std::to_string(expectedChunkIdx) + ")");
+                }
+                expectedChunkIdx = nextChunk + 1;
+
                 size_t nextAvail = std::min<size_t>(nextLen, nextPacket.size() - 5);
                 payload.insert(payload.end(), nextPacket.begin() + 5, nextPacket.begin() + 5 + nextAvail);
                 remaining--;
                 timeouts = 0;
 
                 // Stop early if EN terminator is found in payload
-                if (payload.size() >= 2) {
-                    for (size_t i = 0; i + 1 < payload.size(); ++i) {
-                        if (payload[i] == 'E' && payload[i + 1] == 'N') {
-                            outPayload = std::move(payload);
-                            return true;
-                        }
-                    }
+                if (hasEnTerminator(payload)) {
+                    outPayload = std::move(payload);
+                    return true;
                 }
             } else {
                 timeouts++;
                 if (timeouts >= maxTimeouts) {
-                    break;
+                    log("Timed out waiting for trailing USB fragment (" + std::to_string(remaining) +
+                        " chunks remaining, assembled payload: " + std::to_string(payload.size()) + " B)");
+                    flushInputBuffer();
+                    return false;
                 }
             }
         }
-        outPayload = std::move(payload);
-        return true;
+
+        if (hasEnTerminator(payload)) {
+            outPayload = std::move(payload);
+            return true;
+        } else {
+            log("All fragments read but 'EN' terminator missing from payload");
+            flushInputBuffer();
+            return false;
+        }
     } else {
         if ((reportId == 0x01 || reportId == 0x02) && firstPacket.size() >= 5) {
             size_t availableLen = std::min<size_t>(fragLen, firstPacket.size() - 5);
@@ -407,8 +454,9 @@ bool IrUsbTransceiver::startReceive() {
     std::lock_guard<std::mutex> lock(m_usbMutex);
     if (!m_devHandle) return false;
 
+    flushInputBuffer();
     bool ok = sendCommand('R');
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
     std::vector<uint8_t> dummy;
     readData(dummy, 500);
 
@@ -474,10 +522,12 @@ bool IrUsbTransceiver::captureOnce(IrSignal& outSignal, float timeoutSeconds) {
     std::lock_guard<std::mutex> lock(m_usbMutex);
     if (!m_devHandle) return false;
 
+    flushInputBuffer();
+
     setState(DeviceState::Receiving);
 
     sendCommand('R');
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
     std::vector<uint8_t> dummy;
     readData(dummy, 300);
 
@@ -532,9 +582,10 @@ void IrUsbTransceiver::pollingLoop() {
             m_pollingActive = false;
             return;
         }
+        flushInputBuffer();
         setState(DeviceState::Receiving);
         sendCommand('R');
-        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
         std::vector<uint8_t> dummy;
         readData(dummy, 300);
     }

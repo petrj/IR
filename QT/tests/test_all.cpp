@@ -134,6 +134,79 @@ void testNecProtocolCodec() {
     assert(!code.isRepeat);
 }
 
+void testMultiChunkPayloadAssembly() {
+    std::cout << "  [CORE] Testing multi-chunk TV remote payload reassembly..." << std::endl;
+
+    // Simulate standard TV remote button press (NEC protocol: 68 pulses)
+    uint32_t tvAddress = 0x00;
+    uint32_t tvCommand = 0x18; // Power button
+    std::vector<int> tvPulses = ir::IrProtocol::encodeNec(tvAddress, tvCommand);
+    assert(tvPulses.size() == 68);
+
+    uint8_t freq = 38;
+    auto encodedBytes = ir::IrProtocol::encodeTiqiaaPayload(tvPulses, freq);
+
+    // Frame: ST <id> D <encodedBytes> EN
+    std::vector<uint8_t> fullFrame;
+    fullFrame.push_back('S');
+    fullFrame.push_back('T');
+    fullFrame.push_back(1); // cmd_id
+    fullFrame.push_back('D');
+    fullFrame.insert(fullFrame.end(), encodedBytes.begin(), encodedBytes.end());
+    fullFrame.push_back('E');
+    fullFrame.push_back('N');
+
+    // TV remote frame is ~103 bytes, which exceeds 56 bytes and MUST be fragmented into 2 chunks
+    constexpr size_t maxChunk = 56;
+    size_t totalChunks = (fullFrame.size() + maxChunk - 1) / maxChunk;
+    assert(totalChunks == 2);
+
+    // Build USB packet 1 (chunk 1/2)
+    std::vector<uint8_t> chunk1(fullFrame.begin(), fullFrame.begin() + maxChunk);
+    std::vector<uint8_t> usbPkt1(5 + chunk1.size());
+    usbPkt1[0] = 0x02; // Report ID
+    usbPkt1[1] = static_cast<uint8_t>(chunk1.size() + 3);
+    usbPkt1[2] = 1;    // counter
+    usbPkt1[3] = static_cast<uint8_t>(totalChunks); // 2
+    usbPkt1[4] = 1;    // chunk index 1
+    std::copy(chunk1.begin(), chunk1.end(), usbPkt1.begin() + 5);
+
+    // Build USB packet 2 (chunk 2/2)
+    std::vector<uint8_t> chunk2(fullFrame.begin() + maxChunk, fullFrame.end());
+    std::vector<uint8_t> usbPkt2(5 + chunk2.size());
+    usbPkt2[0] = 0x02;
+    usbPkt2[1] = static_cast<uint8_t>(chunk2.size() + 3);
+    usbPkt2[2] = 1;
+    usbPkt2[3] = static_cast<uint8_t>(totalChunks); // 2
+    usbPkt2[4] = 2;    // chunk index 2
+    std::copy(chunk2.begin(), chunk2.end(), usbPkt2.begin() + 5);
+
+    // 1. Chunk 1 alone must FAIL to decode because 'EN' is missing (prevents premature return)
+    ir::IrSignal partialSignal;
+    bool partialOk = ir::IrProtocol::decodeTiqiaaPayload(chunk1, partialSignal);
+    assert(!partialOk);
+
+    // 2. Reassemble fragments
+    std::vector<uint8_t> reassembled;
+    reassembled.insert(reassembled.end(), usbPkt1.begin() + 5, usbPkt1.end());
+    reassembled.insert(reassembled.end(), usbPkt2.begin() + 5, usbPkt2.end());
+    assert(reassembled.size() == fullFrame.size());
+
+    // 3. Fully reassembled payload decodes successfully
+    ir::IrSignal decodedTvSignal;
+    bool reassembledOk = ir::IrProtocol::decodeTiqiaaPayload(reassembled, decodedTvSignal);
+    assert(reassembledOk);
+    assert(decodedTvSignal.frequency_khz == 38);
+
+    // 4. Verify decoded signal decodes to exact NEC TV Remote command
+    ir::DecodedCode decodedNec;
+    bool necOk = ir::IrProtocol::decodeNec(decodedTvSignal.pulses, decodedNec);
+    assert(necOk);
+    assert(decodedNec.protocol == ir::IrProtocolType::NEC);
+    assert(decodedNec.address == tvAddress);
+    assert(decodedNec.command == tvCommand);
+}
+
 void testIrUsbTransceiverClass() {
     std::cout << "  [CORE] Testing IrUsbTransceiver lifecycle..." << std::endl;
 
@@ -372,6 +445,8 @@ int main(int argc, char* argv[]) {
             testIrProtocolAGCLeaderFix();
         } else if (filter == "tiqiaa_payload") {
             testTiqiaaPayloadEncodingAndDecoding();
+        } else if (filter == "multi_chunk") {
+            testMultiChunkPayloadAssembly();
         } else if (filter == "nec_codec") {
             testNecProtocolCodec();
         } else if (filter == "transceiver") {
@@ -382,7 +457,7 @@ int main(int argc, char* argv[]) {
             testApiServerEndpoints();
         } else {
             std::cerr << "Unknown test filter: " << filter << "\n";
-            std::cerr << "Supported tests: ring_buffer, pulse_parsing, agc_leader, tiqiaa_payload, nec_codec, transceiver, storage_matching, rest_api\n";
+            std::cerr << "Supported tests: ring_buffer, pulse_parsing, agc_leader, tiqiaa_payload, multi_chunk, nec_codec, transceiver, storage_matching, rest_api\n";
             return 1;
         }
         std::cout << "[PASSED] Test " << filter << " completed successfully.\n";
@@ -398,6 +473,7 @@ int main(int argc, char* argv[]) {
     testIrProtocolPulseParsingAndFormatting();
     testIrProtocolAGCLeaderFix();
     testTiqiaaPayloadEncodingAndDecoding();
+    testMultiChunkPayloadAssembly();
     testNecProtocolCodec();
     testIrUsbTransceiverClass();
     testSignalStorageAndMatching();

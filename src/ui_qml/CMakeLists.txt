@@ -20,3 +20,16 @@ target_link_libraries(ir_gui PRIVATE
     Qt6::Quick
     Qt6::QuickControls2
 )
+
+# Register QML files so IDEs (Qt Creator) show them in the project tree
+if (TARGET ir_gui)
+    qt_add_qml_module(ir_gui
+        URI IR
+        VERSION 1.0
+        QML_FILES
+            main.qml
+            TopBar.qml
+            ManualAddPopup.qml
+            CapturePopup.qml
+    )
+endif()

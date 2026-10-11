@@ -21,6 +21,10 @@ AppController::AppController(QObject *parent)
     , m_capturedFrequency(38)
     , m_networkManager(new QNetworkAccessManager(this))
     , m_refreshTimer(new QTimer(this))
+    , m_irDeviceConnected(false)
+    , m_deviceState("Unknown")
+    , m_apiHost()
+        , m_serverRunning(false)
 {
     connect(m_networkManager, &QNetworkAccessManager::finished,
             this, &AppController::onReplyFinished);
@@ -28,6 +32,10 @@ AppController::AppController(QObject *parent)
     m_refreshTimer->setInterval(1000);
     m_refreshTimer->start();
     refreshStatus();
+    // initialize apiHost from apiUrl
+    QUrl u(m_apiUrl);
+    const QString hostPort = u.port() != -1 ? QString("%1:%2").arg(u.host()).arg(u.port()) : u.host();
+    m_apiHost = hostPort;
 }
 
 QString AppController::status() const
@@ -58,6 +66,26 @@ bool AppController::captureReady() const
 QString AppController::captureName() const
 {
     return m_captureName;
+}
+
+bool AppController::irDeviceConnected() const
+{
+    return m_irDeviceConnected;
+}
+
+QString AppController::deviceState() const
+{
+    return m_deviceState;
+}
+
+QString AppController::apiHost() const
+{
+    return m_apiHost;
+}
+
+bool AppController::serverRunning() const
+{
+    return m_serverRunning;
 }
 
 void AppController::setApiUrl(const QString &url)
@@ -96,8 +124,11 @@ void AppController::onReplyFinished(QNetworkReply *reply)
     const QByteArray data = reply->readAll();
     const QString url = reply->url().toString();
     const bool wasConnected = m_serverConnected;
+    const bool wasServerRunning = m_serverRunning;
 
-    if (reply->error() == QNetworkReply::NoError && !data.isEmpty()) {
+    const bool replyOk = (reply->error() == QNetworkReply::NoError);
+
+    if (replyOk && !data.isEmpty()) {
         QJsonParseError parseError;
         const QJsonDocument document = QJsonDocument::fromJson(data, &parseError);
         if (parseError.error == QJsonParseError::NoError && document.isObject()) {
@@ -138,20 +169,52 @@ void AppController::onReplyFinished(QNetworkReply *reply)
                 emit captureInProgressChanged();
                 emit statusChanged();
             } else {
+                // status endpoint
+                m_serverRunning = true;
+
                 const bool connected = object.value("connected").toBool(false);
                 const QString state = object.value("state").toString("Unknown");
                 m_serverConnected = connected;
                 m_status = connected ? QString("Connected (%1)").arg(state.isEmpty() ? "Ready" : state)
                                      : QString("Disconnected");
+
+                // Extract device information if present. Support a few common response shapes.
+                const bool wasDevice = m_irDeviceConnected;
+                const QString prevDeviceState = m_deviceState;
+
+                bool deviceConnected = false;
+                QString deviceStateStr;
+                if (object.contains("device") && object.value("device").isObject()) {
+                    const QJsonObject dev = object.value("device").toObject();
+                    deviceConnected = dev.value("connected").toBool(false);
+                    deviceStateStr = dev.value("state").toString(state);
+                } else {
+                    deviceConnected = object.value("device_connected").toBool(false);
+                    deviceStateStr = object.value("device_state").toString(state);
+                    if (deviceStateStr.isEmpty())
+                        deviceStateStr = state;
+                }
+
+                m_irDeviceConnected = deviceConnected;
+                m_deviceState = deviceStateStr;
+
+                if (wasDevice != m_irDeviceConnected) {
+                    emit irDeviceConnectedChanged();
+                }
+                if (prevDeviceState != m_deviceState) {
+                    emit deviceStateChanged();
+                }
             }
         } else {
             if (!url.contains("/api/v1/capture") && !url.contains("/api/v1/signals")) {
+                m_serverRunning = true;
                 m_serverConnected = false;
                 m_status = "Server responded, but status data is invalid";
             }
         }
     } else {
         if (!url.contains("/api/v1/capture") && !url.contains("/api/v1/signals")) {
+            m_serverRunning = false;
             m_serverConnected = false;
             m_status = QString("Server offline: %1").arg(reply->errorString().isEmpty() ? "cannot reach API" : reply->errorString());
         }
@@ -163,8 +226,20 @@ void AppController::onReplyFinished(QNetworkReply *reply)
         emit serverConnectedChanged();
     }
 
+    if (wasServerRunning != m_serverRunning) {
+        emit serverRunningChanged();
+    }
+
     if (!url.contains("/api/v1/capture") && !url.contains("/api/v1/signals")) {
         emit statusChanged();
+    }
+
+    // also ensure apiHost is up-to-date (apiUrl may have been changed externally)
+    QUrl u(m_apiUrl);
+    const QString hostPort = u.port() != -1 ? QString("%1:%2").arg(u.host()).arg(u.port()) : u.host();
+    if (m_apiHost != hostPort) {
+        m_apiHost = hostPort;
+        emit apiHostChanged();
     }
 }
 

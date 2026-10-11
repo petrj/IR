@@ -13,9 +13,13 @@ class AppController : public QObject
     Q_OBJECT
     Q_PROPERTY(QString status READ status NOTIFY statusChanged)
     Q_PROPERTY(QString apiUrl READ apiUrl WRITE setApiUrl NOTIFY apiUrlChanged)
+    Q_PROPERTY(QString apiHost READ apiHost NOTIFY apiHostChanged)
     Q_PROPERTY(bool serverConnected READ serverConnected NOTIFY serverConnectedChanged)
+    Q_PROPERTY(bool serverRunning READ serverRunning NOTIFY serverRunningChanged)
+    Q_PROPERTY(bool irDeviceConnected READ irDeviceConnected NOTIFY irDeviceConnectedChanged)
     Q_PROPERTY(bool captureInProgress READ captureInProgress NOTIFY captureInProgressChanged)
     Q_PROPERTY(bool captureReady READ captureReady NOTIFY captureReadyChanged)
+    Q_PROPERTY(QString deviceState READ deviceState NOTIFY deviceStateChanged)
     Q_PROPERTY(QString captureName READ captureName WRITE setCaptureName NOTIFY captureNameChanged)
 
 public:
@@ -27,6 +31,10 @@ public:
     bool captureInProgress() const;
     bool captureReady() const;
     QString captureName() const;
+    bool irDeviceConnected() const;
+    QString deviceState() const;
+    QString apiHost() const;
+    bool serverRunning() const;
     void setApiUrl(const QString &url);
     void setCaptureName(const QString &name);
 
@@ -41,8 +49,12 @@ signals:
     void statusChanged();
     void apiUrlChanged();
     void serverConnectedChanged();
+    void irDeviceConnectedChanged();
     void captureInProgressChanged();
     void captureReadyChanged();
+    void deviceStateChanged();
+    void apiHostChanged();
+    void serverRunningChanged();
     void captureNameChanged();
 
 private slots:
@@ -59,4 +71,8 @@ private:
     int m_capturedFrequency;
     QNetworkAccessManager *m_networkManager;
     QTimer *m_refreshTimer;
+    bool m_irDeviceConnected;
+    QString m_deviceState;
+    QString m_apiHost;
+    bool m_serverRunning;
 };

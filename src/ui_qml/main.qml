@@ -9,62 +9,126 @@ Window {
     title: "IR Transceiver"
     color: "#0f172a"
 
+    // Top docked header bar
     Rectangle {
-        anchors.fill: parent
-        color: "#0f172a"
+        id: topBar
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        height: 56
+        color: "#071127"
+        border.color: "#0b1220"
+        border.width: 1
 
-        Column {
-            anchors.centerIn: parent
+        Row {
+            anchors.fill: parent
+            anchors.margins: 12
             spacing: 18
-            width: 680
 
             Text {
-                text: "IR Transceiver"
-                font.pixelSize: 32
+                text: "IR"
+                font.pixelSize: 20
                 font.bold: true
                 color: "#e2e8f0"
+                anchors.verticalCenter: parent.verticalCenter
             }
 
+            // Server state (server process reachable)
             Row {
-                spacing: 12
-                anchors.left: parent.left
+                spacing: 8
+                anchors.verticalCenter: parent.verticalCenter
 
                 Rectangle {
-                    width: 18
-                    height: 18
-                    radius: 9
-                    color: appController.serverConnected ? "#22c55e" : "#ef4444"
-                    border.color: appController.serverConnected ? "#86efac" : "#fca5a5"
-                    border.width: 2
+                    width: 14
+                    height: 14
+                    radius: 7
+                    color: appController.serverRunning ? "#22c55e" : "#ef4444"
+                    border.color: appController.serverRunning ? "#86efac" : "#fca5a5"
+                    border.width: 1
                 }
 
                 Text {
-                    text: appController.serverConnected ? "Connected" : "Disconnected"
-                    font.pixelSize: 18
-                    color: appController.serverConnected ? "#86efac" : "#fca5a5"
+                    text: "Server: " + (appController.serverRunning ? "Running" : "Stopped")
+                    color: appController.serverRunning ? "#86efac" : "#fca5a5"
+                    font.pixelSize: 14
+                }
+            }
+
+            // USB IR device state
+            Row {
+                spacing: 8
+                anchors.verticalCenter: parent.verticalCenter
+
+                Rectangle {
+                    width: 14
+                    height: 14
+                    radius: 7
+                    color: appController.irDeviceConnected ? "#22c55e" : (appController.deviceState === "Unknown" ? "#94a3b8" : "#ef4444")
+                    border.color: appController.irDeviceConnected ? "#86efac" : "#fca5a5"
+                    border.width: 1
+                }
+
+                Text {
+                    text: "USB IR: " + (appController.irDeviceConnected ? "Connected" : "Disconnected")
+                    color: appController.irDeviceConnected ? "#86efac" : "#fca5a5"
+                    font.pixelSize: 14
+                }
+            }
+
+            // IP address
+            Row {
+                spacing: 6
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.leftMargin: 12
+
+                Text {
+                    text: "IP:"
+                    color: "#94a3b8"
+                    font.pixelSize: 13
+                }
+
+                Text {
+                    text: appController.apiHost && appController.apiHost !== "" ? appController.apiHost : "-"
+                    color: "#cbd5e1"
+                    font.pixelSize: 13
                     font.bold: true
                 }
             }
+        }
+    }
 
-            TextField {
-                width: 680
-                text: appController.apiUrl
-                onEditingFinished: appController.apiUrl = text
-                placeholderText: "API URL"
+    // Main content below the top bar
+    Column {
+        anchors.top: topBar.bottom
+        anchors.horizontalCenter: parent.horizontalCenter
+        spacing: 18
+        width: 680
+
+        Text {
+            text: "IR Transceiver"
+            font.pixelSize: 32
+            font.bold: true
+            color: "#e2e8f0"
+        }
+
+        TextField {
+            width: 680
+            text: appController.apiUrl
+            onEditingFinished: appController.apiUrl = text
+            placeholderText: "API URL"
+        }
+
+        Row {
+            spacing: 16
+
+            Button {
+                text: "Capture"
+                onClicked: appController.startCapture()
             }
 
-            Row {
-                spacing: 16
-
-                Button {
-                    text: "Capture"
-                    onClicked: appController.startCapture()
-                }
-
-                Button {
-                    text: "Transmit"
-                    onClicked: appController.transmitSignal()
-                }
+            Button {
+                text: "Transmit"
+                onClicked: appController.transmitSignal()
             }
         }
     }

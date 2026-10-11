@@ -1,0 +1,22 @@
+# Qt QML GUI Application
+add_executable(ir_gui
+    main.cpp
+    AppController.h
+    AppController.cpp
+)
+
+target_include_directories(ir_gui PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/core
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+target_compile_definitions(ir_gui PRIVATE
+    IR_QML_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+)
+
+target_link_libraries(ir_gui PRIVATE
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Quick
+    Qt6::QuickControls2
+)

@@ -107,23 +107,43 @@ Ensure the following tools and libraries are installed on your build system:
 ### Installing Dependencies
 
 #### Ubuntu / Debian (.deb Packages)
-Run the following command to install all required dependencies:
+Run the following command to install all required dependencies for the full project, including the Qt GUI and Qt Creator debugging support:
 
 ```bash
 sudo apt update
-sudo apt install build-essential cmake qt6-base-dev qt6-declarative-dev libusb-1.0-0-dev libcpp-httplib-dev nlohmann-json3-dev
+sudo apt install -y \
+  build-essential \
+  cmake \
+  qtbase5-dev qttools5-dev qt5-default \
+  qt6-base-dev qt6-declarative-dev qt6-tools-dev qt6-tools-dev-tools \
+  libusb-1.0-0-dev \
+  libcpp-httplib-dev \
+  nlohmann-json3-dev
 ```
+
+> If you are using the Qt 6 toolchain, the essential GUI/debug packages are `qt6-base-dev`, `qt6-declarative-dev`, and `qt6-tools-dev`. The `qt5` packages are only needed for older Qt 5 compatibility setups and are not required for this project unless you intentionally build against Qt 5.
 
 #### Debian Package Breakdown:
 | Package (.deb) | Purpose |
 | :--- | :--- |
 | `build-essential` | C/C++ compiler toolchain (GCC/G++, Make) |
 | `cmake` | Cross-platform build system |
+| `qt6-base-dev` | Qt 6 core libraries and development tools for the GUI app |
+| `qt6-declarative-dev` | Qt 6 QML / Quick UI modules |
+| `qt6-tools-dev` | Qt Creator integration and Qt tooling support |
+| `qt6-tools-dev-tools` | Extra Qt toolchain utilities used by IDEs/debuggers |
 | `libusb-1.0-0-dev` | C headers and development files for direct USB communication |
 | `libcpp-httplib-dev` | C++17 HTTP/HTTPS server and client library for the embedded REST API |
 | `nlohmann-json3-dev` | Modern C++ JSON parser and serializer for REST requests/responses |
-| `qt6-base-dev` | Qt 6 core libraries and development tools (for QML GUI) |
-| `qt6-declarative-dev` | Qt 6 QML / Quick declarative UI components |
+
+#### Qt Creator / Debugging Notes
+To debug the GUI target directly in Qt Creator, make sure the following are installed on the system:
+
+```bash
+sudo apt install -y qt6-base-dev qt6-declarative-dev qt6-tools-dev qt6-tools-dev-tools
+```
+
+This ensures Qt Creator can find `Qt6Config.cmake` and attach the debugger to the `ir_gui` target with the project’s CMake configuration.
 
 #### Windows (vcpkg / MSVC)
 ```cmd
@@ -151,6 +171,9 @@ cmake --build . --parallel
 ```bash
 # Build the REST API standalone server
 cmake --build . --target ir_api_server
+
+# Build the Qt Graphical User Interface
+cmake --build . --target ir_gui
 
 # Build the TUI test tool
 cmake --build . --target ir_tui
@@ -225,7 +248,6 @@ Reload rules:
 ```bash
 sudo udevadm control --reload-rules && sudo udevadm trigger
 ```
-
 
 Script example:
 ```

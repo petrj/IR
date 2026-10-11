@@ -16,6 +16,19 @@ if(NOT CMAKE_BUILD_TYPE STREQUAL "Release")
     add_compile_options(-g)
 endif()
 
+# Qt Creator / CMake debugging support
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)
+set(CMAKE_AUTOUIC ON)
+set(CMAKE_INCLUDE_CURRENT_DIR ON)
+
+if(DEFINED ENV{QTDIR})
+    list(APPEND CMAKE_PREFIX_PATH "$ENV{QTDIR}")
+endif()
+if(DEFINED ENV{QT_ROOT})
+    list(APPEND CMAKE_PREFIX_PATH "$ENV{QT_ROOT}")
+endif()
+
 # Enable IDE folders grouping (for Qt Creator, Visual Studio, Xcode)
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
@@ -28,6 +41,11 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 # 1. Threads Library Check
 # ----------------------------------------------------------------------------
 find_package(Threads REQUIRED)
+
+# ----------------------------------------------------------------------------
+# 2. Qt 6 GUI Dependency Check
+# ----------------------------------------------------------------------------
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Quick QuickControls2 Network)
 
 # ----------------------------------------------------------------------------
 # 2. PkgConfig & libusb-1.0 Dependency Check
@@ -83,6 +101,7 @@ include(CTest)
 # Modular subdirectories matching real filesystem folders
 add_subdirectory(src/core)
 add_subdirectory(src/api)
+add_subdirectory(src/ui_qml)
 add_subdirectory(src/ui_tui)
 add_subdirectory(tests)
 

@@ -51,9 +51,9 @@ Window {
                             anchors.fill: parent
                             anchors.margins: 6
                             spacing: 12
-                            Text { text: name; color: "#cbd5e1" }
-                            Text { text: protocol + " (" + pulseCount + ")"; color: "#94a3b8" }
-                            Text { text: timestamp; color: "#64748b" }
+                            Text { text: modelData.name || ""; color: "#cbd5e1" }
+                            Text { text: (modelData.protocol || "") + " (" + (modelData.pulseCount || 0) + ")"; color: "#94a3b8" }
+                            Text { text: modelData.timestamp || ""; color: "#64748b" }
                         }
                     }
                     Component.onCompleted: {

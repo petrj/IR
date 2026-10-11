@@ -416,11 +416,24 @@ void AppController::cancelCapture()
 
 void AppController::addSignalManually(const QString &name, const QString &protocol, int frequency, const QString &rawHex, const QVariantList &pulses)
 {
+    if (name.trimmed().isEmpty()) {
+        m_status = "Manual signal name is required";
+        emit statusChanged();
+        return;
+    }
+
+    if (pulses.isEmpty() && rawHex.trimmed().isEmpty()) {
+        m_status = "Manual signal needs pulse values or rawHex";
+        emit statusChanged();
+        return;
+    }
+
     QJsonObject payload;
-    payload["name"] = name.isEmpty() ? "Manual Signal" : name;
+    payload["name"] = name.trimmed();
     payload["protocol"] = protocol.isEmpty() ? "Raw" : protocol;
     payload["frequency"] = frequency <= 0 ? 38 : frequency;
-    payload["rawHex"] = rawHex.isEmpty() ? QString("N/A") : rawHex;
+    payload["timestamp"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
+    payload["rawHex"] = rawHex.trimmed().isEmpty() ? QString("N/A") : rawHex.trimmed();
 
     if (!pulses.isEmpty()) {
         QJsonArray arr;
@@ -439,15 +452,42 @@ void AppController::addSignalManually(const QString &name, const QString &protoc
     QNetworkReply *reply = m_networkManager->post(request, body);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         const QByteArray response = reply->readAll();
-        QJsonParseError parseError;
-        const QJsonDocument document = QJsonDocument::fromJson(response, &parseError);
-        if (parseError.error == QJsonParseError::NoError && document.isObject()) {
-            // refresh list after successful save
-            refreshSignals();
-            m_status = document.object().value("message").toString("Signal saved");
-        } else {
-            m_status = "Save failed";
+        const bool ok = reply->error() == QNetworkReply::NoError;
+
+        if (ok) {
+            QJsonParseError parseError;
+            const QJsonDocument document = QJsonDocument::fromJson(response, &parseError);
+            if (parseError.error == QJsonParseError::NoError && document.isObject()) {
+                const QJsonObject obj = document.object();
+                const bool success = obj.value("success").toBool(false) || obj.value("message").toString().contains("Saved", Qt::CaseInsensitive);
+                if (success) {
+                    // Refresh the list immediately and again shortly after in case the server is still processing.
+                    refreshSignals();
+                    QTimer::singleShot(250, this, &AppController::refreshSignals);
+                    m_status = obj.value("message").toString("Signal saved");
+                    emit statusChanged();
+                    reply->deleteLater();
+                    return;
+                }
+            }
         }
+
+        QString err = "Save failed";
+        if (!response.isEmpty()) {
+            QJsonParseError parseError;
+            const QJsonDocument document = QJsonDocument::fromJson(response, &parseError);
+            if (parseError.error == QJsonParseError::NoError && document.isObject()) {
+                const QJsonObject obj = document.object();
+                if (obj.contains("error")) {
+                    err = obj.value("error").toString();
+                }
+            }
+        }
+        if (reply->error() != QNetworkReply::NoError && !reply->errorString().isEmpty()) {
+            err = reply->errorString();
+        }
+
+        m_status = err;
         emit statusChanged();
         reply->deleteLater();
     });

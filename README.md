@@ -2,7 +2,7 @@
 
 A high-performance, cross-platform C++ / Qt 6 application for receiving, transmitting, and processing Infra-Red (IR) signals using USB transceiver hardware.
 
-This project replaces legacy Python-based USB drivers with a lightweight, native C++ engine (`libusb`), providing an embedded HTTP REST API server (`ir_api_server`), a modern graphical interface (**QML**), and an interactive terminal / console test tool (**`ir_tui_test`**) that connects directly to the HTTP REST API.
+This project is a lightweight, native C++ engine (`libusb`), providing an embedded HTTP REST API server (`ir_api_server`), a modern graphical interface (**QML**), and an interactive terminal / console test tool (**`ir_tui_test`**) that connects directly to the HTTP REST API.
 
 ---
 
@@ -125,9 +125,6 @@ sudo apt install build-essential cmake qt6-base-dev qt6-declarative-dev libusb-1
 | `qt6-base-dev` | Qt 6 core libraries and development tools (for QML GUI) |
 | `qt6-declarative-dev` | Qt 6 QML / Quick declarative UI components |
 
-> [!NOTE]
-> If `libcpp-httplib-dev` or `nlohmann-json3-dev` are not installed, CMake's `FetchContent` mechanism will automatically fetch and compile them from GitHub as a fallback during the build process.
-
 #### Windows (vcpkg / MSVC)
 ```cmd
 vcpkg install libusb:x64-windows cpp-httplib:x64-windows nlohmann-json:x64-windows qtbase:x64-windows qtdeclarative:x64-windows
@@ -139,8 +136,8 @@ vcpkg install libusb:x64-windows cpp-httplib:x64-windows nlohmann-json:x64-windo
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/your-username/IR-QtApp.git
-cd IR-QtApp
+git clone https://github.com/petrj/IR.git
+cd IR
 ```
 
 ### 2. Configure and Build
@@ -156,7 +153,7 @@ cmake --build . --parallel
 cmake --build . --target ir_api_server
 
 # Build the TUI test tool
-cmake --build . --target ir_tui_test
+cmake --build . --target ir_tui
 
 # Build unified test suite (IR Core + REST API)
 cmake --build . --target test_all
@@ -181,36 +178,36 @@ Convenience scripts are provided in the project root:
 
 ---
 
-## 💻 Terminal Console Test Tool (`ir_tui_test`)
+## 💻 Terminal Console Tool (`ir_tui`)
 
-The `ir_tui_test` executable provides an interactive console menu and CLI commands that interface directly with the hardware through the embedded REST HTTP API:
+The `ir_tui` executable provides an interactive console menu and CLI commands that interface directly with the hardware through the embedded REST HTTP API:
 
 ```bash
 # 1. Run interactive menu (connects to http://127.0.0.1:8080 by default)
-./build/debug/ir_tui_test
+./build/debug/ir_tui
 
 # 2. Connect to an API server running on a custom host/port
-./build/debug/ir_tui_test --api http://127.0.0.1:8089
+./build/debug/ir_tui --api http://127.0.0.1:8089
 
 # 3. Single-shot capture via HTTP API and exit (exit code 0 on success)
-./build/debug/ir_tui_test --read
+./build/debug/ir_tui --read
 
 # 4. Transmit a signal via API (by stored name, index, or pulse timings)
-./build/debug/ir_tui_test --send "TV Power"
-./build/debug/ir_tui_test --send "[9000, -4500, 560, -560, 560, -1690]"
+./build/debug/ir_tui --send "TV Power"
+./build/debug/ir_tui --send "[9000, -4500, 560, -560, 560, -1690]"
 
 # 5. List all locally stored and recognized signals
-./build/debug/ir_tui_test --list
+./build/debug/ir_tui --list
 
 # 6. Display hardware diagnostics and connection status via API
-./build/debug/ir_tui_test --info
+./build/debug/ir_tui --info
 ```
 
 > [!TIP]
 > You can also configure the target API server URL using the `IR_API_URL` environment variable:
 > ```bash
 > export IR_API_URL="http://192.168.1.100:8080"
-> ./build/debug/ir_tui_test
+> ./build/debug/ir_tui
 > ```
 
 ---
@@ -229,11 +226,23 @@ Reload rules:
 sudo udevadm control --reload-rules && sudo udevadm trigger
 ```
 
+
+Script example:
+```
+V="10c4"; P="8468"; \
+echo 'SUBSYSTEM=="usb", ATTR{idVendor}=="'$V'", ATTRS{idProduct}=="'$P'", MODE="0666", GROUP="plugdev"' \
+| sudo tee /etc/udev/rules.d/99-usb-$V-$P.rules > /dev/null && \
+sudo usermod -aG plugdev $USER && \
+sudo udevadm control --reload-rules && \
+sudo udevadm trigger
+```
+
+
 ### Windows
 Ensure the USB transceiver uses the **WinUSB** driver. Windows 10/11 will typically match WinUSB automatically; otherwise, use [Zadig](https://zadig.akeo.ie/) to assign the WinUSB driver to the hardware endpoint.
 
 ### Android
-Due to SELinux restrictions, Android applications cannot directly call `libusb_open()`. 
+Due to SELinux restrictions, Android applications cannot directly call `libusb_open()`.
 
 1. Request USB permission using Android's native `UsbManager`.
 2. Retrieve the integer file descriptor via `UsbDeviceConnection.getFileDescriptor()`.

@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QVector>
 
 class QNetworkAccessManager;
 class QNetworkReply;
@@ -13,6 +14,9 @@ class AppController : public QObject
     Q_PROPERTY(QString status READ status NOTIFY statusChanged)
     Q_PROPERTY(QString apiUrl READ apiUrl WRITE setApiUrl NOTIFY apiUrlChanged)
     Q_PROPERTY(bool serverConnected READ serverConnected NOTIFY serverConnectedChanged)
+    Q_PROPERTY(bool captureInProgress READ captureInProgress NOTIFY captureInProgressChanged)
+    Q_PROPERTY(bool captureReady READ captureReady NOTIFY captureReadyChanged)
+    Q_PROPERTY(QString captureName READ captureName WRITE setCaptureName NOTIFY captureNameChanged)
 
 public:
     explicit AppController(QObject *parent = nullptr);
@@ -20,17 +24,26 @@ public:
     QString status() const;
     QString apiUrl() const;
     bool serverConnected() const;
+    bool captureInProgress() const;
+    bool captureReady() const;
+    QString captureName() const;
     void setApiUrl(const QString &url);
+    void setCaptureName(const QString &name);
 
 public slots:
     void refreshStatus();
     void startCapture();
+    void saveCapturedSignal();
+    void cancelCapture();
     void transmitSignal();
 
 signals:
     void statusChanged();
     void apiUrlChanged();
     void serverConnectedChanged();
+    void captureInProgressChanged();
+    void captureReadyChanged();
+    void captureNameChanged();
 
 private slots:
     void onReplyFinished(QNetworkReply *reply);
@@ -39,6 +52,11 @@ private:
     QString m_status;
     QString m_apiUrl;
     bool m_serverConnected;
+    bool m_captureInProgress;
+    bool m_captureReady;
+    QString m_captureName;
+    QVector<int> m_capturedPulses;
+    int m_capturedFrequency;
     QNetworkAccessManager *m_networkManager;
     QTimer *m_refreshTimer;
 };

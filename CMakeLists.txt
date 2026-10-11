@@ -89,8 +89,7 @@ add_subdirectory(tests)
 # Project documentation files (visible in Qt Creator and other IDEs)
 add_custom_target(docs
     SOURCES
-        project_readme.md
         src/core/README.md
         src/api/README.md
-        ${CMAKE_CURRENT_SOURCE_DIR}/../README.md
+        README.md
 )

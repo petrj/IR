@@ -1,7 +1,2 @@
-doc/*
-__pycache__/*
+build/*
 
-# SQLite database (created automatically on first run)
-Studio/database/*.sqlite
-Studio/database/*.sqlite-journal
-QT/build/*

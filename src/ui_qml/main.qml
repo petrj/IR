@@ -104,31 +104,131 @@ Window {
         spacing: 18
         width: 680
 
-        Text {
-            text: "IR Transceiver"
-            font.pixelSize: 32
-            font.bold: true
-            color: "#e2e8f0"
-        }
-
-        TextField {
+        // Saved signals list
+        Rectangle {
             width: 680
-            text: appController.apiUrl
-            onEditingFinished: appController.apiUrl = text
-            placeholderText: "API URL"
+            color: "#071127"
+            radius: 8
+            border.color: "#0b1220"
+            border.width: 1
+
+            Column {
+                anchors.fill: parent
+                anchors.margins: 12
+                spacing: 8
+
+                Row {
+                    spacing: 8
+                    Text { text: "Saved Signals"; color: "#e2e8f0"; font.pixelSize: 16; font.bold: true }
+                    Button { text: "Refresh"; onClicked: appController.refreshSignals() }
+                    Button { text: "Add"; onClicked: manualAddPopup.open() }
+                }
+
+                ListView {
+                    model: appController.savedSignals
+                    height: 200
+                    clip: true
+                    delegate: Rectangle {
+                        width: parent.width
+                        height: 34
+                        color: index % 2 === 0 ? "#071a2a" : "#061423"
+                        Row {
+                            anchors.fill: parent
+                            anchors.margins: 6
+                            spacing: 12
+                            Text { text: name; color: "#cbd5e1" }
+                            Text { text: protocol + " (" + pulseCount + ")"; color: "#94a3b8" }
+                            Text { text: timestamp; color: "#64748b" }
+                        }
+                    }
+                    Component.onCompleted: {
+                        // initial population happens via binding to appController.savedSignals
+                    }
+                }
+            }
         }
 
-        Row {
-            spacing: 16
+        // floating Capture button is placed at window level (see below)
+    }
 
-            Button {
-                text: "Capture"
-                onClicked: appController.startCapture()
+    // Floating capture button (oval) bottom-right
+    Button {
+        id: captureButton
+        text: "Capture"
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.margins: 20
+        width: 96
+        height: 48
+        font.pixelSize: 16
+        background: Rectangle {
+            color: "#10b981"
+            radius: height / 2
+            border.color: "#059669"
+            border.width: 1
+        }
+        contentItem: Text { text: captureButton.text; color: "white"; anchors.centerIn: parent }
+        onClicked: appController.startCapture()
+    }
+
+    // Manual add popup
+    Popup {
+        id: manualAddPopup
+        modal: true
+        focus: true
+        width: 420
+        height: 320
+        closePolicy: Popup.CloseOnEscape
+        background: Rectangle { color: "#0b1220"; radius: 8; border.color: "#1f2937" }
+
+        Column {
+            anchors.fill: parent
+            anchors.margins: 12
+            spacing: 8
+
+            Text { text: "Add Signal Manually"; color: "#e2e8f0"; font.pixelSize: 16; font.bold: true }
+
+            TextField { id: manualName; placeholderText: "Name"; width: parent.width }
+            Row { spacing: 8;
+                property string selectedProtocol: "Raw"
+                Button {
+                    text: "Raw"
+                    checkable: true
+                    checked: selectedProtocol === "Raw"
+                    onClicked: selectedProtocol = "Raw"
+                }
+                Button {
+                    text: "NEC"
+                    checkable: true
+                    checked: selectedProtocol === "NEC"
+                    onClicked: selectedProtocol = "NEC"
+                }
+                TextField { id: manualFreq; placeholderText: "Frequency (kHz)"; text: "38" }
             }
+            TextArea { id: manualRawHex; placeholderText: "rawHex (optional)"; height: 40; width: parent.width }
+            TextArea { id: manualPulses; placeholderText: "Pulses (comma-separated microseconds)"; height: 80; width: parent.width }
 
-            Button {
-                text: "Transmit"
-                onClicked: appController.transmitSignal()
+            Row { spacing: 8; anchors.horizontalCenter: parent.horizontalCenter
+                Button {
+                    text: "Save"
+                    onClicked: {
+                        var freq = parseInt(manualFreq.text) || 38;
+                        var raw = manualRawHex.text.trim();
+                        var pulsesArr = [];
+                        if (manualPulses.text.trim().length > 0) {
+                            var parts = manualPulses.text.split(',');
+                            for (var i=0;i<parts.length;i++) {
+                                var v = parseInt(parts[i]);
+                                if (!isNaN(v)) pulsesArr.push(v);
+                            }
+                        }
+                        var proto = manualAddPopup.children[0].selectedProtocol || "Raw";
+                        appController.addSignalManually(manualName.text, proto, freq, raw, pulsesArr);
+                        manualAddPopup.close();
+                    }
+                }
+
+                Button { text: "Cancel"; onClicked: manualAddPopup.close() }
             }
         }
     }

@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QString>
 #include <QVector>
+#include <QVariant>
 
 class QNetworkAccessManager;
 class QNetworkReply;
@@ -16,6 +17,7 @@ class AppController : public QObject
     Q_PROPERTY(QString apiHost READ apiHost NOTIFY apiHostChanged)
     Q_PROPERTY(bool serverConnected READ serverConnected NOTIFY serverConnectedChanged)
     Q_PROPERTY(bool serverRunning READ serverRunning NOTIFY serverRunningChanged)
+    Q_PROPERTY(QVariantList savedSignals READ savedSignals NOTIFY savedSignalsChanged)
     Q_PROPERTY(bool irDeviceConnected READ irDeviceConnected NOTIFY irDeviceConnectedChanged)
     Q_PROPERTY(bool captureInProgress READ captureInProgress NOTIFY captureInProgressChanged)
     Q_PROPERTY(bool captureReady READ captureReady NOTIFY captureReadyChanged)
@@ -35,12 +37,15 @@ public:
     QString deviceState() const;
     QString apiHost() const;
     bool serverRunning() const;
+    QVariantList savedSignals() const;
     void setApiUrl(const QString &url);
     void setCaptureName(const QString &name);
 
 public slots:
     void refreshStatus();
+    void refreshSignals();
     void startCapture();
+    Q_INVOKABLE void addSignalManually(const QString &name, const QString &protocol, int frequency, const QString &rawHex, const QVariantList &pulses);
     void saveCapturedSignal();
     void cancelCapture();
     void transmitSignal();
@@ -55,6 +60,7 @@ signals:
     void deviceStateChanged();
     void apiHostChanged();
     void serverRunningChanged();
+    void savedSignalsChanged();
     void captureNameChanged();
 
 private slots:
@@ -75,4 +81,5 @@ private:
     QString m_deviceState;
     QString m_apiHost;
     bool m_serverRunning;
+    QVariantList m_signals;
 };

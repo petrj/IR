@@ -427,6 +427,67 @@ void AppController::addSignalManually(const QString &name, const QString &protoc
     emit statusChanged();
 }
 
+void AppController::removeSavedSignal(int index)
+{
+    if (index < 0 || static_cast<size_t>(index) >= m_storage.count()) {
+        m_status = "Invalid saved signal index";
+        emit statusChanged();
+        return;
+    }
+
+    if (m_storage.removeSignal(static_cast<size_t>(index))) {
+        refreshSignals();
+        m_status = "Saved signal removed";
+        emit statusChanged();
+    }
+}
+
+void AppController::transmitSavedSignal(int index)
+{
+    if (index < 0 || static_cast<size_t>(index) >= m_storage.count()) {
+        m_status = "Invalid saved signal index";
+        emit statusChanged();
+        return;
+    }
+
+    const auto signalOpt = m_storage.getSignal(static_cast<size_t>(index));
+    if (!signalOpt.has_value()) {
+        m_status = "Signal not found";
+        emit statusChanged();
+        return;
+    }
+
+    const auto& signal = signalOpt.value();
+    const QUrl requestUrl = QUrl(m_apiUrl).resolved(QUrl("/api/v1/send"));
+    QNetworkRequest request(requestUrl);
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+
+    QJsonObject body;
+    body["name"] = QString::fromStdString(signal.name);
+    const QByteArray payload = QJsonDocument(body).toJson(QJsonDocument::Compact);
+
+    QNetworkReply *reply = m_networkManager->post(request, payload);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        reply->deleteLater();
+        const QByteArray data = reply->readAll();
+        if (reply->error() == QNetworkReply::NoError && !data.isEmpty()) {
+            QJsonParseError parseError;
+            const QJsonDocument document = QJsonDocument::fromJson(data, &parseError);
+            if (parseError.error == QJsonParseError::NoError && document.isObject()) {
+                const QJsonObject object = document.object();
+                if (object.value("success").toBool(false)) {
+                    m_status = "Saved signal transmitted";
+                    emit statusChanged();
+                    return;
+                }
+            }
+        }
+
+        m_status = "Transmit failed";
+        emit statusChanged();
+    });
+}
+
 void AppController::transmitSignal()
 {
     m_status = "Transmit requested";

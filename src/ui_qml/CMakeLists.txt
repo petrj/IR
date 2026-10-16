@@ -3,8 +3,6 @@ add_executable(ir_gui
     main.cpp
     AppController.h
     AppController.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui_tui/SignalStorage.h
-    ${CMAKE_SOURCE_DIR}/src/ui_tui/SignalStorage.cpp
 )
 
 target_include_directories(ir_gui PRIVATE

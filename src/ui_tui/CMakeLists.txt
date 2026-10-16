@@ -3,8 +3,6 @@ add_executable(ir_tui
     main_tui.cpp
     TuiController.h
     TuiController.cpp
-    SignalStorage.h
-    SignalStorage.cpp
 )
 
 target_include_directories(ir_tui PRIVATE

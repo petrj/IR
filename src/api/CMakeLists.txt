@@ -3,8 +3,6 @@ add_library(ir_api STATIC
     README.md
     HttpServerModule.h
     HttpServerModule.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui_tui/SignalStorage.h
-    ${CMAKE_SOURCE_DIR}/src/ui_tui/SignalStorage.cpp
 )
 
 target_include_directories(ir_api PUBLIC

@@ -17,53 +17,97 @@ Window {
         anchors.top: topBar.bottom
         anchors.horizontalCenter: parent.horizontalCenter
         spacing: 18
-        width: 680
+        width: 760
 
-        // Saved signals list
+        // Saved signals grid
         Rectangle {
-            width: 680
+            width: 760
+            height: 360
             color: "#071127"
-            radius: 8
+            radius: 10
             border.color: "#0b1220"
             border.width: 1
 
             Column {
                 anchors.fill: parent
                 anchors.margins: 12
-                spacing: 8
+                spacing: 10
 
                 Row {
                     spacing: 8
                     Text { text: "Saved Signals"; color: "#e2e8f0"; font.pixelSize: 16; font.bold: true }
                     Button { text: "Refresh"; onClicked: appController.refreshSignals() }
-                    Button { text: "Add"; onClicked: manualAddPopup.open() }
+                    Button { text: "Add Manual"; onClicked: manualAddPopup.open() }
+                    Button { text: "Capture via API"; onClicked: appController.startCapture() }
                 }
 
-                ListView {
+                GridView {
+                    id: signalGrid
                     model: appController.savedSignals
-                    height: 200
+                    width: parent.width
+                    height: parent.height - 40
                     clip: true
+                    cellWidth: 220
+                    cellHeight: 130
                     delegate: Rectangle {
-                        width: parent.width
-                        height: 34
+                        width: signalGrid.cellWidth - 12
+                        height: signalGrid.cellHeight - 12
+                        radius: 8
                         color: index % 2 === 0 ? "#071a2a" : "#061423"
-                        Row {
+                        border.color: "#1e293b"
+                        border.width: 1
+
+                        Column {
                             anchors.fill: parent
-                            anchors.margins: 6
-                            spacing: 12
-                            Text { text: modelData.name || ""; color: "#cbd5e1" }
-                            Text { text: (modelData.protocol || "") + " (" + (modelData.pulseCount || 0) + ")"; color: "#94a3b8" }
-                            Text { text: modelData.timestamp || ""; color: "#64748b" }
+                            anchors.margins: 10
+                            spacing: 6
+
+                            Text {
+                                text: modelData.name || "Unnamed"
+                                color: "#f8fafc"
+                                font.pixelSize: 15
+                                font.bold: true
+                                width: parent.width
+                                elide: Text.ElideRight
+                            }
+
+                            Text {
+                                text: (modelData.protocol || "Raw") + " • " + (modelData.pulseCount || 0) + " pulses"
+                                color: "#cbd5e1"
+                                font.pixelSize: 12
+                            }
+
+                            Text {
+                                text: "Freq: " + (modelData.frequency || 38) + " kHz"
+                                color: "#94a3b8"
+                                font.pixelSize: 11
+                            }
+
+                            Text {
+                                text: modelData.timestamp || ""
+                                color: "#64748b"
+                                font.pixelSize: 11
+                                width: parent.width
+                                elide: Text.ElideRight
+                            }
+
+                            Row {
+                                spacing: 8
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                Button {
+                                    text: "Send"
+                                    onClicked: appController.transmitSavedSignal(modelData.index)
+                                }
+                                Button {
+                                    text: "Delete"
+                                    onClicked: appController.removeSavedSignal(modelData.index)
+                                }
+                            }
                         }
-                    }
-                    Component.onCompleted: {
-                        // initial population happens via binding to appController.savedSignals
                     }
                 }
             }
         }
-
-        // floating Capture button is placed at window level (see below)
     }
 
     // Floating capture button (oval) bottom-right

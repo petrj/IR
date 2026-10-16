@@ -48,6 +48,8 @@ public slots:
     void refreshSignals();
     void startCapture();
     Q_INVOKABLE void addSignalManually(const QString &name, const QString &protocol, int frequency, const QString &rawHex, const QVariantList &pulses);
+    Q_INVOKABLE void removeSavedSignal(int index);
+    Q_INVOKABLE void transmitSavedSignal(int index);
     void saveCapturedSignal();
     void cancelCapture();
     void transmitSignal();

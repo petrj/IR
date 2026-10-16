@@ -6,6 +6,8 @@ add_library(ir_core STATIC
     IrProtocol.cpp
     IrUsbTransceiver.h
     IrUsbTransceiver.cpp
+    SignalStorage.h
+    SignalStorage.cpp
 )
 
 target_include_directories(ir_core PUBLIC

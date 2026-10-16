@@ -28,6 +28,7 @@ public:
     bool saveToFile(const std::string& path = "") const;
 
     void addSignal(const SavedIrSignal& signal);
+    bool updateSignal(size_t index, const SavedIrSignal& signal);
     bool removeSignal(size_t index);
     void clear();
 

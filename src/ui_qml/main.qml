@@ -53,7 +53,7 @@ Window {
                         width: 32
                         height: 28
                         font.pixelSize: 18
-                        onClicked: manualAddPopup.open()
+                        onClicked: manualAddPopup.openForNew()
                     }
                     Button {
                         text: "📡"
@@ -134,6 +134,13 @@ Window {
                             Row {
                                 spacing: 8
                                 anchors.verticalCenter: parent.verticalCenter
+                                Button {
+                                    text: "✎"
+                                    width: 30
+                                    height: 26
+                                    font.pixelSize: 12
+                                    onClicked: manualAddPopup.openForEdit(modelData.index)
+                                }
                                 Button {
                                     text: "➤"
                                     width: 30

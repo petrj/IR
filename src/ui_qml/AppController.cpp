@@ -171,8 +171,13 @@ void AppController::onReplyFinished(QNetworkReply *reply)
         return;
     }
 
-    const QByteArray data = reply->readAll();
     const QString url = reply->url().toString();
+    if (url.contains("/api/v1/capture")) {
+        reply->deleteLater();
+        return;
+    }
+
+    const QByteArray data = reply->readAll();
     const bool wasConnected = m_serverConnected;
     const bool wasServerRunning = m_serverRunning;
 
@@ -184,97 +189,69 @@ void AppController::onReplyFinished(QNetworkReply *reply)
         if (parseError.error == QJsonParseError::NoError && document.isObject()) {
             const QJsonObject object = document.object();
 
-            if (url.contains("/api/v1/capture")) {
-                const QJsonObject signalObject = object.value("signal").toObject();
-                if (object.value("success").toBool(false) && !signalObject.isEmpty()) {
-                    m_capturedPulses.clear();
-                    const QJsonArray pulseArray = signalObject.value("pulses").toArray();
-                    for (const QJsonValue &pulse : pulseArray) {
-                        m_capturedPulses.append(pulse.toInt());
-                    }
-                    m_capturedFrequency = signalObject.value("frequency").toInt(38);
+            // status endpoint
+            m_serverRunning = true;
 
-                    m_captureReady = true;
-                    m_captureInProgress = false;
-                    m_captureName = m_captureName.isEmpty() ? "Captured Signal" : m_captureName;
-                    emit captureReadyChanged();
-                    emit captureInProgressChanged();
-                    emit captureNameChanged();
-                    m_status = "Signal captured";
-                    emit statusChanged();
-                } else {
-                    m_captureReady = false;
-                    m_captureInProgress = false;
-                    m_status = "Capture failed";
-                    emit captureReadyChanged();
-                    emit captureInProgressChanged();
-                    emit statusChanged();
+            const bool connected = object.value("connected").toBool(false);
+            const QString state = object.value("state").toString("Unknown");
+            m_serverConnected = connected;
+            m_status = connected ? QString("Connected (%1)").arg(state.isEmpty() ? "Ready" : state)
+                                 : QString("Disconnected");
+
+            // Extract device information if present. Support the API's actual response shape
+            // as well as older fallback payloads.
+            const bool wasDevice = m_irDeviceConnected;
+            const QString prevDeviceState = m_deviceState;
+
+            bool deviceConnected = object.value("connected").toBool(false);
+            QString deviceStateStr = object.value("state").toString(state);
+
+            if (object.contains("device") && object.value("device").isObject()) {
+                const QJsonObject dev = object.value("device").toObject();
+                if (dev.contains("connected")) {
+                    deviceConnected = dev.value("connected").toBool(deviceConnected);
+                }
+                if (dev.contains("state")) {
+                    deviceStateStr = dev.value("state").toString(deviceStateStr);
                 }
             } else {
-                // status endpoint
-                m_serverRunning = true;
+                deviceConnected = object.value("device_connected").toBool(deviceConnected);
+                deviceStateStr = object.value("device_state").toString(deviceStateStr);
+                if (deviceStateStr.isEmpty())
+                    deviceStateStr = state;
+            }
 
-                const bool connected = object.value("connected").toBool(false);
-                const QString state = object.value("state").toString("Unknown");
-                m_serverConnected = connected;
-                m_status = connected ? QString("Connected (%1)").arg(state.isEmpty() ? "Ready" : state)
-                                     : QString("Disconnected");
+            m_irDeviceConnected = deviceConnected;
+            m_deviceState = deviceStateStr;
 
-                // Extract device information if present. Support the API's actual response shape
-                // as well as older fallback payloads.
-                const bool wasDevice = m_irDeviceConnected;
-                const QString prevDeviceState = m_deviceState;
+            const QJsonObject deviceObject = object.value("device").toObject();
+            const QString vendorId = deviceObject.value("vendorId").toString();
+            const QString productId = deviceObject.value("productId").toString();
+            const QString manufacturer = deviceObject.value("manufacturer").toString();
+            const QString product = deviceObject.value("product").toString();
+            const QString serialNumber = deviceObject.value("serialNumber").toString();
+            const QString firmwareVersion = deviceObject.value("firmwareVersion").toString();
+            const QString usbDetails = QString(
+                "Connected: %1\nState: %2\nManufacturer: %3\nProduct: %4\nVendor ID: %5\nProduct ID: %6\nSerial: %7\nFirmware: %8"
+            )
+                .arg(deviceConnected ? "Yes" : "No")
+                .arg(deviceStateStr.isEmpty() ? "Unknown" : deviceStateStr)
+                .arg(manufacturer.isEmpty() ? "N/A" : manufacturer)
+                .arg(product.isEmpty() ? "N/A" : product)
+                .arg(vendorId.isEmpty() ? "N/A" : vendorId)
+                .arg(productId.isEmpty() ? "N/A" : productId)
+                .arg(serialNumber.isEmpty() ? "N/A" : serialNumber)
+                .arg(firmwareVersion.isEmpty() ? "N/A" : firmwareVersion);
+            if (m_usbStatusDetails != usbDetails) {
+                m_usbStatusDetails = usbDetails;
+                emit usbStatusDetailsChanged();
+            }
 
-                bool deviceConnected = object.value("connected").toBool(false);
-                QString deviceStateStr = object.value("state").toString(state);
-
-                if (object.contains("device") && object.value("device").isObject()) {
-                    const QJsonObject dev = object.value("device").toObject();
-                    if (dev.contains("connected")) {
-                        deviceConnected = dev.value("connected").toBool(deviceConnected);
-                    }
-                    if (dev.contains("state")) {
-                        deviceStateStr = dev.value("state").toString(deviceStateStr);
-                    }
-                } else {
-                    deviceConnected = object.value("device_connected").toBool(deviceConnected);
-                    deviceStateStr = object.value("device_state").toString(deviceStateStr);
-                    if (deviceStateStr.isEmpty())
-                        deviceStateStr = state;
-                }
-
-                m_irDeviceConnected = deviceConnected;
-                m_deviceState = deviceStateStr;
-
-                const QJsonObject deviceObject = object.value("device").toObject();
-                const QString vendorId = deviceObject.value("vendorId").toString();
-                const QString productId = deviceObject.value("productId").toString();
-                const QString manufacturer = deviceObject.value("manufacturer").toString();
-                const QString product = deviceObject.value("product").toString();
-                const QString serialNumber = deviceObject.value("serialNumber").toString();
-                const QString firmwareVersion = deviceObject.value("firmwareVersion").toString();
-                const QString usbDetails = QString(
-                    "Connected: %1\nState: %2\nManufacturer: %3\nProduct: %4\nVendor ID: %5\nProduct ID: %6\nSerial: %7\nFirmware: %8"
-                )
-                    .arg(deviceConnected ? "Yes" : "No")
-                    .arg(deviceStateStr.isEmpty() ? "Unknown" : deviceStateStr)
-                    .arg(manufacturer.isEmpty() ? "N/A" : manufacturer)
-                    .arg(product.isEmpty() ? "N/A" : product)
-                    .arg(vendorId.isEmpty() ? "N/A" : vendorId)
-                    .arg(productId.isEmpty() ? "N/A" : productId)
-                    .arg(serialNumber.isEmpty() ? "N/A" : serialNumber)
-                    .arg(firmwareVersion.isEmpty() ? "N/A" : firmwareVersion);
-                if (m_usbStatusDetails != usbDetails) {
-                    m_usbStatusDetails = usbDetails;
-                    emit usbStatusDetailsChanged();
-                }
-
-                if (wasDevice != m_irDeviceConnected) {
-                    emit irDeviceConnectedChanged();
-                }
-                if (prevDeviceState != m_deviceState) {
-                    emit deviceStateChanged();
-                }
+            if (wasDevice != m_irDeviceConnected) {
+                emit irDeviceConnectedChanged();
+            }
+            if (prevDeviceState != m_deviceState) {
+                emit deviceStateChanged();
             }
         } else {
             if (!url.contains("/api/v1/capture")) {
@@ -316,6 +293,82 @@ void AppController::onReplyFinished(QNetworkReply *reply)
         m_apiHost = hostPort;
         emit apiHostChanged();
     }
+}
+
+QVariantMap AppController::getSignalDetails(int index) const
+{
+    QVariantMap details;
+    if (index < 0 || static_cast<size_t>(index) >= m_storage.count()) {
+        return details;
+    }
+
+    const auto signal = m_storage.getSignals()[index];
+    details["index"] = index;
+    details["name"] = QString::fromStdString(signal.name);
+    details["protocol"] = QString::fromStdString(signal.protocol);
+    details["frequency"] = static_cast<int>(signal.frequency_khz);
+    details["timestamp"] = QString::fromStdString(signal.timestamp);
+    details["rawHex"] = QString::fromStdString(signal.rawHex);
+
+    QVariantList pulses;
+    for (const int pulse : signal.pulses) {
+        pulses.append(pulse);
+    }
+    details["pulses"] = pulses;
+    return details;
+}
+
+void AppController::updateSignal(int index, const QString &name, const QString &protocol, int frequency, const QString &rawHex, const QVariantList &pulses)
+{
+    if (index < 0 || static_cast<size_t>(index) >= m_storage.count()) {
+        m_status = "Invalid saved signal index";
+        emit statusChanged();
+        return;
+    }
+
+    if (name.trimmed().isEmpty()) {
+        m_status = "Signal name is required";
+        emit statusChanged();
+        return;
+    }
+
+    if (pulses.isEmpty() && rawHex.trimmed().isEmpty()) {
+        m_status = "Signal needs pulse values or rawHex";
+        emit statusChanged();
+        return;
+    }
+
+    ir::SavedIrSignal updated;
+    const auto existing = m_storage.getSignals()[index];
+    updated.name = name.trimmed().toStdString();
+    updated.protocol = protocol.isEmpty() ? "Raw" : protocol.toStdString();
+    updated.frequency_khz = static_cast<uint8_t>(frequency <= 0 ? 38 : frequency);
+    updated.timestamp = QDateTime::currentDateTimeUtc().toString("yyyy-MM-dd HH:mm:ss").toStdString();
+    updated.rawHex = rawHex.trimmed().isEmpty() ? "N/A" : rawHex.trimmed().toStdString();
+    updated.pulses.clear();
+    for (const QVariant &v : pulses) {
+        bool ok = false;
+        const int value = v.toInt(&ok);
+        if (ok) {
+            updated.pulses.push_back(value);
+        }
+    }
+
+    if (updated.pulses.empty() && updated.rawHex == "N/A") {
+        m_status = "Signal needs pulse values or rawHex";
+        emit statusChanged();
+        return;
+    }
+
+    if (!m_storage.updateSignal(static_cast<size_t>(index), updated)) {
+        m_status = "Failed to update signal";
+        emit statusChanged();
+        return;
+    }
+
+    refreshSignals();
+    m_status = "Signal updated";
+    emit statusChanged();
 }
 
 void AppController::startCapture()

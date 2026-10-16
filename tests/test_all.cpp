@@ -342,36 +342,48 @@ void testSignalStorageAndMatching() {
         storage.addSignal(sig1);
         assert(storage.count() == 1);
         assert(storage.getSignals()[0].name == "Test TV Power");
+
+        ir::SavedIrSignal sig1Updated;
+        sig1Updated.name = "Test TV Power Updated";
+        sig1Updated.protocol = "Raw";
+        sig1Updated.rawHex = "0xAA55";
+        sig1Updated.frequency_khz = 40;
+        sig1Updated.pulses = { 1000, -1000, 2000, -2000 };
+        sig1Updated.timestamp = "2026-10-04 11:00:00";
+        assert(storage.updateSignal(0, sig1Updated));
+        assert(storage.getSignals()[0].name == "Test TV Power Updated");
+        assert(storage.getSignals()[0].frequency_khz == 40);
     }
 
     {
         ir::SignalStorage storage2(testPath);
         assert(storage2.count() == 1);
-        assert(storage2.getSignals()[0].name == "Test TV Power");
+        assert(storage2.getSignals()[0].name == "Test TV Power Updated");
+        assert(storage2.getSignals()[0].frequency_khz == 40);
 
         // 1. Exact pulse match
-        auto necPulses = ir::IrProtocol::encodeNec(0x00, 0x18);
-        auto matchExact = storage2.findMatchingSignal(necPulses);
+        auto updatedPulses = storage2.getSignals()[0].pulses;
+        auto matchExact = storage2.findMatchingSignal(updatedPulses);
         assert(matchExact.has_value());
-        assert(matchExact->name == "Test TV Power");
+        assert(matchExact->name == "Test TV Power Updated");
 
         // 2. Decoded signal match
         ir::IrSignal incoming;
-        incoming.pulses = necPulses;
-        incoming.frequency_khz = 38;
+        incoming.pulses = updatedPulses;
+        incoming.frequency_khz = 40;
         auto matchSig = storage2.findMatchingSignal(incoming);
         assert(matchSig.has_value());
-        assert(matchSig->name == "Test TV Power");
+        assert(matchSig->name == "Test TV Power Updated");
 
         // 3. Timing-tolerant pulse sequence match
-        std::vector<int> jitteredPulses = necPulses;
+        std::vector<int> jitteredPulses = updatedPulses;
         for (size_t i = 2; i < jitteredPulses.size() - 1; ++i) {
             if (jitteredPulses[i] > 0) jitteredPulses[i] += 40;
             else jitteredPulses[i] -= 40;
         }
         auto matchJitter = storage2.findMatchingSignal(jitteredPulses);
         assert(matchJitter.has_value());
-        assert(matchJitter->name == "Test TV Power");
+        assert(matchJitter->name == "Test TV Power Updated");
 
         // 4. Mismatched signal
         auto otherPulses = ir::IrProtocol::encodeNec(0x05, 0x99);

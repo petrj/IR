@@ -44,7 +44,7 @@ std::string SavedIrSignal::toJsonString() const {
     oss << "    }";
     return oss.str();
 }
- 
+
 std::string SignalStorage::getDefaultStoragePath() {
     const char* xdgConfigHome = std::getenv("XDG_CONFIG_HOME");
     if (xdgConfigHome && xdgConfigHome[0] != '\0') {
@@ -132,6 +132,16 @@ size_t SignalStorage::count() const {
 void SignalStorage::addSignal(const SavedIrSignal& signal) {
     m_signals.push_back(signal);
     saveToFile();
+}
+
+bool SignalStorage::updateSignal(size_t index, const SavedIrSignal& signal) {
+    if (index >= m_signals.size()) {
+        return false;
+    }
+
+    m_signals[index] = signal;
+    saveToFile();
+    return true;
 }
 
 bool SignalStorage::removeSignal(size_t index) {

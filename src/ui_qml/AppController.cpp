@@ -1,12 +1,16 @@
 #include "AppController.h"
 
+#include <QCoreApplication>
 #include <QDateTime>
+#include <QDir>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QProcess>
 #include <QTimer>
 #include <QUrl>
 
@@ -23,6 +27,7 @@ AppController::AppController(QObject *parent)
     , m_refreshTimer(new QTimer(this))
     , m_irDeviceConnected(false)
     , m_deviceState("Unknown")
+    , m_usbStatusDetails("Loading USB status...")
     , m_apiHost()
     , m_serverRunning(false)
     , m_storage(ir::SignalStorage::getDefaultStoragePath())
@@ -79,6 +84,11 @@ bool AppController::irDeviceConnected() const
 QString AppController::deviceState() const
 {
     return m_deviceState;
+}
+
+QString AppController::usbStatusDetails() const
+{
+    return m_usbStatusDetails;
 }
 
 QString AppController::apiHost() const
@@ -141,7 +151,18 @@ void AppController::refreshStatus()
     const QUrl requestUrl = QUrl(m_apiUrl).resolved(QUrl("/api/v1/status"));
     QNetworkRequest request(requestUrl);
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    if (m_usbStatusDetails.isEmpty() || m_usbStatusDetails == "Loading USB status...") {
+        m_usbStatusDetails = "Loading USB status...";
+        emit usbStatusDetailsChanged();
+    }
     m_networkManager->get(request);
+}
+
+void AppController::refreshUsbStatusDialog()
+{
+    refreshStatus();
+    m_usbStatusDetails = "Loading USB status...";
+    emit usbStatusDetailsChanged();
 }
 
 void AppController::onReplyFinished(QNetworkReply *reply)
@@ -199,25 +220,54 @@ void AppController::onReplyFinished(QNetworkReply *reply)
                 m_status = connected ? QString("Connected (%1)").arg(state.isEmpty() ? "Ready" : state)
                                      : QString("Disconnected");
 
-                // Extract device information if present. Support a few common response shapes.
+                // Extract device information if present. Support the API's actual response shape
+                // as well as older fallback payloads.
                 const bool wasDevice = m_irDeviceConnected;
                 const QString prevDeviceState = m_deviceState;
 
-                bool deviceConnected = false;
-                QString deviceStateStr;
+                bool deviceConnected = object.value("connected").toBool(false);
+                QString deviceStateStr = object.value("state").toString(state);
+
                 if (object.contains("device") && object.value("device").isObject()) {
                     const QJsonObject dev = object.value("device").toObject();
-                    deviceConnected = dev.value("connected").toBool(false);
-                    deviceStateStr = dev.value("state").toString(state);
+                    if (dev.contains("connected")) {
+                        deviceConnected = dev.value("connected").toBool(deviceConnected);
+                    }
+                    if (dev.contains("state")) {
+                        deviceStateStr = dev.value("state").toString(deviceStateStr);
+                    }
                 } else {
-                    deviceConnected = object.value("device_connected").toBool(false);
-                    deviceStateStr = object.value("device_state").toString(state);
+                    deviceConnected = object.value("device_connected").toBool(deviceConnected);
+                    deviceStateStr = object.value("device_state").toString(deviceStateStr);
                     if (deviceStateStr.isEmpty())
                         deviceStateStr = state;
                 }
 
                 m_irDeviceConnected = deviceConnected;
                 m_deviceState = deviceStateStr;
+
+                const QJsonObject deviceObject = object.value("device").toObject();
+                const QString vendorId = deviceObject.value("vendorId").toString();
+                const QString productId = deviceObject.value("productId").toString();
+                const QString manufacturer = deviceObject.value("manufacturer").toString();
+                const QString product = deviceObject.value("product").toString();
+                const QString serialNumber = deviceObject.value("serialNumber").toString();
+                const QString firmwareVersion = deviceObject.value("firmwareVersion").toString();
+                const QString usbDetails = QString(
+                    "Connected: %1\nState: %2\nManufacturer: %3\nProduct: %4\nVendor ID: %5\nProduct ID: %6\nSerial: %7\nFirmware: %8"
+                )
+                    .arg(deviceConnected ? "Yes" : "No")
+                    .arg(deviceStateStr.isEmpty() ? "Unknown" : deviceStateStr)
+                    .arg(manufacturer.isEmpty() ? "N/A" : manufacturer)
+                    .arg(product.isEmpty() ? "N/A" : product)
+                    .arg(vendorId.isEmpty() ? "N/A" : vendorId)
+                    .arg(productId.isEmpty() ? "N/A" : productId)
+                    .arg(serialNumber.isEmpty() ? "N/A" : serialNumber)
+                    .arg(firmwareVersion.isEmpty() ? "N/A" : firmwareVersion);
+                if (m_usbStatusDetails != usbDetails) {
+                    m_usbStatusDetails = usbDetails;
+                    emit usbStatusDetailsChanged();
+                }
 
                 if (wasDevice != m_irDeviceConnected) {
                     emit irDeviceConnectedChanged();
@@ -231,6 +281,8 @@ void AppController::onReplyFinished(QNetworkReply *reply)
                 m_serverRunning = true;
                 m_serverConnected = false;
                 m_status = "Server responded, but status data is invalid";
+                m_usbStatusDetails = "USB status unavailable\nServer responded, but status data is invalid.";
+                emit usbStatusDetailsChanged();
             }
         }
     } else {
@@ -238,6 +290,8 @@ void AppController::onReplyFinished(QNetworkReply *reply)
             m_serverRunning = false;
             m_serverConnected = false;
             m_status = QString("Server offline: %1").arg(reply->errorString().isEmpty() ? "cannot reach API" : reply->errorString());
+            m_usbStatusDetails = QString("USB status unavailable\n%1").arg(m_status);
+            emit usbStatusDetailsChanged();
         }
     }
 
@@ -440,6 +494,48 @@ void AppController::removeSavedSignal(int index)
         m_status = "Saved signal removed";
         emit statusChanged();
     }
+}
+
+void AppController::startServer()
+{
+    if (m_serverRunning) {
+        m_status = "API server already running";
+        emit statusChanged();
+        return;
+    }
+
+    const QString appDir = QCoreApplication::applicationDirPath();
+    const QStringList candidates = {
+        QDir(appDir).filePath("ir_api_server"),
+        QDir::currentPath() + "/ir_api_server",
+        QDir::cleanPath(QDir::currentPath() + "/build/debug/ir_api_server"),
+        QDir::cleanPath(QDir::currentPath() + "/build/release/ir_api_server")
+    };
+
+    QString executablePath;
+    for (const QString &candidate : candidates) {
+        if (QFileInfo(candidate).isExecutable()) {
+            executablePath = candidate;
+            break;
+        }
+    }
+
+    if (executablePath.isEmpty()) {
+        m_status = "API server executable not found";
+        emit statusChanged();
+        return;
+    }
+
+    const QString workingDir = QFileInfo(executablePath).absolutePath();
+    const bool started = QProcess::startDetached(executablePath, QStringList(), workingDir);
+    if (!started) {
+        m_status = "Failed to start API server";
+        emit statusChanged();
+        return;
+    }
+
+    m_status = "Starting API server...";
+    emit statusChanged();
 }
 
 void AppController::transmitSavedSignal(int index)

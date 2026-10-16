@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Layouts
 
 Rectangle {
     id: root
@@ -10,7 +11,10 @@ Rectangle {
     border.color: "#0b1220"
     border.width: 1
 
-    Row {
+    property Dialog startServerDialog: null
+    property Dialog usbStatusDialog: null
+
+    RowLayout {
         anchors.fill: parent
         anchors.margins: 12
         spacing: 18
@@ -20,13 +24,13 @@ Rectangle {
             font.pixelSize: 20
             font.bold: true
             color: "#e2e8f0"
-            anchors.verticalCenter: parent.verticalCenter
         }
 
         // Server state (server process reachable)
         Row {
+            id: serverStatusRow
             spacing: 8
-            anchors.verticalCenter: parent.verticalCenter
+            Layout.alignment: Qt.AlignVCenter
 
             Rectangle {
                 width: 14
@@ -41,13 +45,43 @@ Rectangle {
                 text: "Server: " + (appController.serverRunning ? "Running" : "Stopped")
                 color: appController.serverRunning ? "#86efac" : "#fca5a5"
                 font.pixelSize: 14
+                MouseArea {
+                    anchors.fill: parent
+                    enabled: !appController.serverRunning
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: if (root.startServerDialog) root.startServerDialog.open()
+                }
+            }
+        }
+
+        Item {
+            Layout.fillWidth: true
+            Layout.minimumWidth: 12
+        }
+
+        // IP address
+        Row {
+            spacing: 6
+            Layout.alignment: Qt.AlignVCenter
+
+            Text {
+                text: "IP:"
+                color: "#94a3b8"
+                font.pixelSize: 13
+            }
+
+            Text {
+                text: appController.apiHost && appController.apiHost !== "" ? appController.apiHost : "-"
+                color: "#cbd5e1"
+                font.pixelSize: 13
+                font.bold: true
             }
         }
 
         // USB IR device state
         Row {
             spacing: 8
-            anchors.verticalCenter: parent.verticalCenter
+            Layout.alignment: Qt.AlignVCenter
 
             Rectangle {
                 width: 14
@@ -62,26 +96,16 @@ Rectangle {
                 text: "USB IR: " + (appController.irDeviceConnected ? "Connected" : "Disconnected")
                 color: appController.irDeviceConnected ? "#86efac" : "#fca5a5"
                 font.pixelSize: 14
-            }
-        }
-
-        // IP address
-        Row {
-            spacing: 6
-            anchors.verticalCenter: parent.verticalCenter
-            anchors.leftMargin: 12
-
-            Text {
-                text: "IP:"
-                color: "#94a3b8"
-                font.pixelSize: 13
-            }
-
-            Text {
-                text: appController.apiHost && appController.apiHost !== "" ? appController.apiHost : "-"
-                color: "#cbd5e1"
-                font.pixelSize: 13
-                font.bold: true
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: {
+                        appController.refreshUsbStatusDialog();
+                        if (root.usbStatusDialog) {
+                            root.usbStatusDialog.open();
+                        }
+                    }
+                }
             }
         }
     }

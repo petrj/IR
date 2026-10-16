@@ -13,7 +13,7 @@ Window {
     property string currentDeleteName: ""
 
     // Top docked header bar (moved to TopBar.qml)
-    TopBar { id: topBar }
+    TopBar { id: topBar; startServerDialog: startServerDialog; usbStatusDialog: usbStatusDialog }
 
     // Main content below the top bar
     Column {
@@ -187,6 +187,71 @@ Window {
         }
 
         onAccepted: appController.removeSavedSignal(root.currentDeleteIndex)
+    }
+
+    Dialog {
+        id: startServerDialog
+        title: "Start API server?"
+        modal: true
+        anchors.centerIn: parent
+        width: 340
+        standardButtons: Dialog.Ok | Dialog.Cancel
+
+        contentItem: Rectangle {
+            color: "#0f172a"
+            implicitWidth: 300
+            implicitHeight: 90
+            radius: 8
+            border.color: "#1e293b"
+            border.width: 1
+
+            Text {
+                anchors.centerIn: parent
+                width: parent.width - 24
+                wrapMode: Text.WordWrap
+                text: "Start the local IR API server?"
+                color: "#e2e8f0"
+                font.pixelSize: 14
+            }
+        }
+
+        onAccepted: appController.startServer()
+    }
+
+    Dialog {
+        id: usbStatusDialog
+        title: "USB IR Status"
+        modal: true
+        anchors.centerIn: parent
+        width: 420
+        standardButtons: Dialog.Close
+
+        contentItem: Rectangle {
+            color: "#0f172a"
+            implicitWidth: 380
+            implicitHeight: 180
+            radius: 10
+            border.color: "#1e293b"
+            border.width: 1
+
+            Flickable {
+                anchors.fill: parent
+                anchors.margins: 16
+                clip: true
+                contentHeight: statusText.implicitHeight + 8
+                contentWidth: width
+
+                Text {
+                    id: statusText
+                    width: parent.width
+                    wrapMode: Text.WordWrap
+                    text: appController.usbStatusDetails
+                    color: "#e2e8f0"
+                    font.pixelSize: 13
+                    lineHeight: 1.5
+                }
+            }
+        }
     }
 
     // Manual add popup (moved to ManualAddPopup.qml)

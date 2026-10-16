@@ -24,6 +24,7 @@ class AppController : public QObject
     Q_PROPERTY(bool captureInProgress READ captureInProgress NOTIFY captureInProgressChanged)
     Q_PROPERTY(bool captureReady READ captureReady NOTIFY captureReadyChanged)
     Q_PROPERTY(QString deviceState READ deviceState NOTIFY deviceStateChanged)
+    Q_PROPERTY(QString usbStatusDetails READ usbStatusDetails NOTIFY usbStatusDetailsChanged)
     Q_PROPERTY(QString captureName READ captureName WRITE setCaptureName NOTIFY captureNameChanged)
 
 public:
@@ -37,6 +38,7 @@ public:
     QString captureName() const;
     bool irDeviceConnected() const;
     QString deviceState() const;
+    QString usbStatusDetails() const;
     QString apiHost() const;
     bool serverRunning() const;
     QVariantList savedSignals() const;
@@ -49,7 +51,9 @@ public slots:
     void startCapture();
     Q_INVOKABLE void addSignalManually(const QString &name, const QString &protocol, int frequency, const QString &rawHex, const QVariantList &pulses);
     Q_INVOKABLE void removeSavedSignal(int index);
+    Q_INVOKABLE void startServer();
     Q_INVOKABLE void transmitSavedSignal(int index);
+    Q_INVOKABLE void refreshUsbStatusDialog();
     void saveCapturedSignal();
     void cancelCapture();
     void transmitSignal();
@@ -62,6 +66,7 @@ signals:
     void captureInProgressChanged();
     void captureReadyChanged();
     void deviceStateChanged();
+    void usbStatusDetailsChanged();
     void apiHostChanged();
     void serverRunningChanged();
     void savedSignalsChanged();
@@ -83,6 +88,7 @@ private:
     QTimer *m_refreshTimer;
     bool m_irDeviceConnected;
     QString m_deviceState;
+    QString m_usbStatusDetails;
     QString m_apiHost;
     bool m_serverRunning;
     QVariantList m_signals;

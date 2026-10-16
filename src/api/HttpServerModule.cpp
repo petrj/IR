@@ -239,10 +239,6 @@ void HttpServerModule::handleGetStatus(const httplib::Request&, httplib::Respons
             {"firmwareVersion", fw}
         };
 
-        if (m_storage) {
-            j["savedSignalsCount"] = m_storage->count();
-        }
-
         res.status = 200;
         res.set_content(j.dump(2), "application/json");
     } catch (const std::exception& e) {

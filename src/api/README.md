@@ -17,7 +17,6 @@ The `ir_api` module provides an embedded, cross-platform HTTP REST API server fo
   - [4. Read Receive Buffer (`GET /api/v1/receive`)](#4-read-receive-buffer-get-apiv1receive)
   - [5. Single-Shot Capture (`POST /api/v1/capture`)](#5-single-shot-capture-post-apiv1capture)
   - [6. Hardware Mode Control (`POST /api/v1/mode`)](#6-hardware-mode-control-post-apiv1mode)
-  - [7. Signal Storage Management (`/api/v1/signals`)](#7-signal-storage-management-apiv1signals)
 - [Status & Error Codes](#-status--error-codes)
 - [💡 Practical Usage Examples](#-practical-usage-examples)
   - [Terminal Console Client (`ir_tui`)](#terminal-console-client-ir_tui)
@@ -35,7 +34,7 @@ The `ir_api` module provides an embedded, cross-platform HTTP REST API server fo
 flowchart LR
     Client["HTTP Clients\n(ir_tui / Browser / cURL / Home Assistant)"] -- "JSON REST (Port 8080)" --> API["HttpServerModule\n(cpp-httplib)"]
     API -- "Thread-safe I/O" --> Driver["IrUsbTransceiver\n(libusb-1.0)"]
-    API -- "CRUD JSON" --> Storage["SignalStorage\n(saved_ir_signals.json)"]
+    API -- "Local signal matching" --> Storage["SignalStorage\n(app-data JSON file)"]
     Driver -- "Bulk/Interrupt EP" --> Hardware["Tiqiaa USB IR Hardware\nVID: 0x10C4 | PID: 0x8468"]
 ```
 
@@ -96,7 +95,7 @@ The standalone server binary `ir_api_server` accepts command-line parameters:
 | :--- | :--- | :--- | :--- |
 | `-p`, `--port` | `<port>` | `8080` | Port to listen for incoming HTTP connections |
 | `-h`, `--host` | `<host>` | `0.0.0.0` | Bind IP address (`0.0.0.0` for all interfaces, `127.0.0.1` for local only) |
-| `-s`, `--storage` | `<path>` | `~/saved_ir_signals.json` | Path to load/store saved IR signals JSON file |
+| `-s`, `--storage` | `<path>` | `~/.config/IR/saved_ir_signals.json` or `%APPDATA%\IR\saved_ir_signals.json` | Path to the local JSON signal database used by the desktop apps |
 | `--help` | — | — | Displays CLI help message |
 
 ---
@@ -109,15 +108,10 @@ The default base URL is `http://localhost:8080`.
 | :--- | :--- | :--- |
 | `GET` | `/` | Service identification and endpoint directory |
 | `GET` | `/api/v1/status` | Transceiver hardware connection and operational state |
-| `POST` | `/api/v1/send` | Transmits an IR signal (NEC code, raw pulse timings, or saved signal name) |
+| `POST` | `/api/v1/send` | Transmits an IR signal (NEC code or raw pulse timings) |
 | `GET` | `/api/v1/receive` | Pops the oldest signal from the FIFO receive buffer |
 | `POST` | `/api/v1/capture` | Synchronously waits for an incoming IR signal with a timeout |
 | `POST` | `/api/v1/mode` | Sets transceiver operating mode (`idle`, `receive`, `start_polling`, `stop_polling`) |
-| `GET` | `/api/v1/signals` | Returns a list of all saved signals in storage |
-| `POST` | `/api/v1/signals` | Adds a new IR signal to storage |
-| `GET` | `/api/v1/signals/:index` | Returns a single saved signal by its zero-based index |
-| `DELETE` | `/api/v1/signals/:index` | Removes a saved signal by index |
-| `POST` | `/api/v1/signals/:index/send` | Transmits the saved signal at the specified index |
 
 ---
 
@@ -319,41 +313,23 @@ Supported `mode` values:
 
 ---
 
-### 7. Signal Storage Management (`/api/v1/signals`)
+### Local Signal Storage Model
 
-#### List Stored Signals (`GET /api/v1/signals`)
-```json
-{
-  "count": 2,
-  "storagePath": "/home/user/saved_ir_signals.json",
-  "signals": [
-    {
-      "index": 0,
-      "name": "TV Power",
-      "protocol": "NEC",
-      "frequency": 38,
-      "timestamp": "2026-10-03 20:31:09",
-      "rawHex": "0xE718FF00",
-      "pulseCount": 68
-    }
-  ]
-}
-```
+Signal persistence is intentionally kept out of the REST API surface. The `SignalStorage` class remains available in the project for the desktop TUI/QML apps, and it stores the JSON database in an application-data directory instead of over HTTP.
 
-#### Add New Signal (`POST /api/v1/signals`)
-```json
-{
-  "name": "Projector On",
-  "protocol": "NEC",
-  "rawHex": "0x00FF45BA",
-  "frequency": 38
-}
-```
+On Linux, the default location is typically:
 
-#### Transmit Saved Signal by Index (`POST /api/v1/signals/:index/send`)
 ```bash
-curl -X POST http://localhost:8080/api/v1/signals/0/send
+~/.config/IR/saved_ir_signals.json
 ```
+
+On Windows, the default location is typically:
+
+```powershell
+%APPDATA%\IR\saved_ir_signals.json
+```
+
+The `ir_api_server` process may still instantiate the class internally for signal matching and metadata enrichment, but it does not expose CRUD endpoints for database management from the network API.
 
 ---
 
@@ -436,9 +412,11 @@ curl -X POST http://localhost:8080/api/v1/capture \
      -d '{"timeout": 10.0}' | jq .
 ```
 
-#### 7. List All Stored Remote Signals
+#### 7. Set the Hardware Mode
 ```bash
-curl -s http://localhost:8080/api/v1/signals | jq .
+curl -X POST http://localhost:8080/api/v1/mode \
+     -H "Content-Type: application/json" \
+     -d '{"mode": "receive"}' | jq .
 ```
 
 ---

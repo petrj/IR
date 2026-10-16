@@ -382,6 +382,24 @@ void testSignalStorageAndMatching() {
     std::remove(testPath.c_str());
 }
 
+void testSignalStorageUsesApplicationDataFolder() {
+    std::cout << "  [CORE] Testing SignalStorage app-data path selection..." << std::endl;
+
+    const std::string defaultPath = ir::SignalStorage::getDefaultStoragePath();
+    assert(!defaultPath.empty());
+    assert(defaultPath.find("saved_ir_signals.json") != std::string::npos);
+#if defined(_WIN32)
+    assert(defaultPath.find("IR") != std::string::npos);
+#else
+    const char* xdg = std::getenv("XDG_CONFIG_HOME");
+    if (xdg && xdg[0] != '\0') {
+        assert(defaultPath.find("IR") != std::string::npos);
+    } else {
+        assert(defaultPath.find(".config") != std::string::npos || defaultPath.find(".local") != std::string::npos);
+    }
+#endif
+}
+
 // ============================================================================
 // PART 2: REST HTTP API SERVER INTEGRATION TESTS
 // ============================================================================
@@ -453,52 +471,18 @@ void testApiServerEndpoints() {
         assert(j["available"] == false);
     }
 
-    // 4. GET /api/v1/signals
+    // 4. GET / should no longer advertise storage management endpoints
     {
-        auto res = client.Get("/api/v1/signals");
+        auto res = client.Get("/");
         assert(res && res->status == 200);
         auto j = nlohmann::json::parse(res->body);
-        assert(j.contains("count"));
-        assert(j["count"] == 1);
-        assert(j["signals"].is_array());
-        assert(j["signals"][0]["name"] == "Test TV Mute");
+        assert(j.contains("endpoints"));
+        auto endpoints = j["endpoints"];
+        assert(!endpoints.contains("GET /api/v1/signals"));
+        assert(!endpoints.contains("POST /api/v1/signals"));
     }
 
-    // 5. GET /api/v1/signals/0
-    {
-        auto res = client.Get("/api/v1/signals/0");
-        assert(res && res->status == 200);
-        auto j = nlohmann::json::parse(res->body);
-        assert(j["name"] == "Test TV Mute");
-        assert(j.contains("pulses"));
-    }
-
-    // 6. POST /api/v1/signals (Add signal)
-    {
-        nlohmann::json newSig = {
-            {"name", "Test Power Button"},
-            {"protocol", "NEC"},
-            {"rawHex", "0xA55AFF00"},
-            {"frequency", 38}
-        };
-        auto res = client.Post("/api/v1/signals", newSig.dump(), "application/json");
-        assert(res && res->status == 201);
-        auto j = nlohmann::json::parse(res->body);
-        assert(j["success"] == true);
-        assert(j["name"] == "Test Power Button");
-        assert(storage->count() == 2);
-    }
-
-    // 7. DELETE /api/v1/signals/1
-    {
-        auto res = client.Delete("/api/v1/signals/1");
-        assert(res && res->status == 200);
-        auto j = nlohmann::json::parse(res->body);
-        assert(j["success"] == true);
-        assert(storage->count() == 1);
-    }
-
-    // 8. POST /api/v1/send input validation
+    // 5. POST /api/v1/send input validation
     {
         auto res1 = client.Post("/api/v1/send", "invalid_json_text", "application/json");
         assert(res1 && (res1->status == 400 || res1->status == 503));
@@ -572,6 +556,7 @@ int main(int argc, char* argv[]) {
     testNecProtocolCodec();
     testIrUsbTransceiverClass();
     testSignalStorageAndMatching();
+    testSignalStorageUsesApplicationDataFolder();
     std::cout << "-> All ir_core tests passed!\n";
 
     std::cout << "\n[STAGE 2] Testing ir_api REST HTTP Service:\n";

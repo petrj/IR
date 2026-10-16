@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
+#include <filesystem>
 #include <iomanip>
 
 namespace ir {
@@ -45,21 +46,46 @@ std::string SavedIrSignal::toJsonString() const {
 }
  
 std::string SignalStorage::getDefaultStoragePath() {
+    const char* xdgConfigHome = std::getenv("XDG_CONFIG_HOME");
+    if (xdgConfigHome && xdgConfigHome[0] != '\0') {
+        std::filesystem::path configPath(xdgConfigHome);
+        configPath /= "IR";
+        return (configPath / "saved_ir_signals.json").string();
+    }
+
     const char* home = std::getenv("HOME");
     if (home && home[0] != '\0') {
-        return std::string(home) + "/saved_ir_signals.json";
+        std::filesystem::path configPath(home);
+        configPath /= ".config";
+        configPath /= "IR";
+        return (configPath / "saved_ir_signals.json").string();
     }
+
 #if defined(_WIN32)
+    const char* appData = std::getenv("APPDATA");
+    if (appData && appData[0] != '\0') {
+        std::filesystem::path configPath(appData);
+        configPath /= "IR";
+        return (configPath / "saved_ir_signals.json").string();
+    }
+
+    const char* localAppData = std::getenv("LOCALAPPDATA");
+    if (localAppData && localAppData[0] != '\0') {
+        std::filesystem::path configPath(localAppData);
+        configPath /= "IR";
+        return (configPath / "saved_ir_signals.json").string();
+    }
+
     const char* userProfile = std::getenv("USERPROFILE");
     if (userProfile && userProfile[0] != '\0') {
-        return std::string(userProfile) + "\\saved_ir_signals.json";
-    }
-    const char* homeDrive = std::getenv("HOMEDRIVE");
-    const char* homePath = std::getenv("HOMEPATH");
-    if (homeDrive && homePath) {
-        return std::string(homeDrive) + std::string(homePath) + "\\saved_ir_signals.json";
+        std::filesystem::path configPath(userProfile);
+        configPath /= "AppData";
+        configPath /= "Roaming";
+        configPath /= "IR";
+        return (configPath / "saved_ir_signals.json").string();
     }
 #endif
+
     return "saved_ir_signals.json";
 }
 
@@ -69,8 +95,13 @@ SignalStorage::SignalStorage(std::string storagePath)
     if (m_storagePath.empty()) {
         m_storagePath = getDefaultStoragePath();
     }
+
+    std::filesystem::path storageFilePath(m_storagePath);
+    if (storageFilePath.has_parent_path()) {
+        std::filesystem::create_directories(storageFilePath.parent_path());
+    }
+
     if (!loadFromFile()) {
-        // Fallback: If default path file didn't exist, try local saved_ir_signals.json
         if (!isCustomPath && m_storagePath != "saved_ir_signals.json") {
             if (loadFromFile("saved_ir_signals.json")) {
                 saveToFile();
@@ -119,6 +150,11 @@ void SignalStorage::clear() {
 
 bool SignalStorage::saveToFile(const std::string& path) const {
     std::string targetPath = path.empty() ? m_storagePath : path;
+    std::filesystem::path targetFile(targetPath);
+    if (targetFile.has_parent_path()) {
+        std::filesystem::create_directories(targetFile.parent_path());
+    }
+
     std::ofstream outFile(targetPath);
     if (!outFile.is_open()) {
         return false;

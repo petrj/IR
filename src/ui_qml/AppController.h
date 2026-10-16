@@ -1,5 +1,7 @@
 #pragma once
 
+#include "SignalStorage.h"
+
 #include <QObject>
 #include <QString>
 #include <QVector>
@@ -82,4 +84,5 @@ private:
     QString m_apiHost;
     bool m_serverRunning;
     QVariantList m_signals;
+    ir::SignalStorage m_storage;
 };

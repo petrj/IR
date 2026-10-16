@@ -540,7 +540,7 @@ Unit tests for `ir_core` are implemented in [`tests/test_core.cpp`](../../tests/
 * Tiqiaa payload byte encoding and decoding roundtrip
 * NEC protocol encode & decode verification
 * `IrUsbTransceiver` lifecycle and state machine
-* Signal storage and tolerant pulse matching
+* SignalStorage support and tolerant pulse matching
 
 ### Running via CTest
 ```bash

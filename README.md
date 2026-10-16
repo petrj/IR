@@ -49,6 +49,7 @@ The system architecture decouples the frontends from the hardware drivers via an
   * **QML / Qt Quick UI:** Modern graphical interface optimized for desktop and mobile touchscreens, interacting with the transceiver via the Embedded REST HTTP API.
   * **Terminal Console Test Tool (`ir_tui_test`):** Full-featured interactive console dashboard and CLI tool communicating over the HTTP REST API (`http://127.0.0.1:8080`) for rapid hardware debugging, protocol inspection, single capture, continuous polling, and transmission.
 * **Embedded REST HTTP API:** Trigger IR transmissions, capture pulses, or monitor hardware status remotely via standard HTTP endpoints ([Documentation](src/api/README.md)).
+* **Local JSON Signal Database:** The TUI and QML apps use `SignalStorage` directly with a platform-appropriate app-data file, instead of exposing signal CRUD over the REST API.
 * **Asynchronous Driver Execution:** USB polling runs on dedicated worker threads (`QThread` / `std::thread`), keeping all UI interaction smooth and non-blocking.
 
 ---
@@ -59,7 +60,7 @@ The system architecture decouples the frontends from the hardware drivers via an
 IR-QtApp/
 ├── CMakeLists.txt                # Root build configuration
 ├── project_readme.md             # Project documentation
-├── saved_ir_signals.json         # Default saved IR signals database
+├── saved_ir_signals.json         # Local fallback for the app's JSON signal database
 ├── src/
 │   ├── core/                     # Shared static library (ir_core)
 │   │   ├── README.md             # Library documentation & API reference
@@ -82,7 +83,7 @@ IR-QtApp/
 │       ├── main_tui.cpp          # Console entry point & CLI parser
 │       ├── TuiController.cpp     # HTTP API-driven console controller
 │       ├── TuiController.h
-│       ├── SignalStorage.cpp     # JSON persistence for remote signals
+│       ├── SignalStorage.cpp     # JSON persistence for local saved signals
 │       └── SignalStorage.h
 ├── tests/                        # Automated unit & integration tests
 │   ├── CMakeLists.txt            # Test configuration (test_all target)
@@ -287,11 +288,6 @@ The embedded API server listens by default on port `8080`. For full documentatio
 | **GET** | `/api/v1/receive` | Reads latest signal from receive ring buffer | _None_ (supports `?last=true`) |
 | **POST** | `/api/v1/capture` | Synchronously waits for incoming signal | `{"timeout": 5.0}` |
 | **POST** | `/api/v1/mode` | Sets transceiver operating mode | `{"mode": "idle"}` |
-| **GET** | `/api/v1/signals` | Lists all stored signals | _None_ |
-| **POST** | `/api/v1/signals` | Saves a new signal to storage | `{"name": "Power", "protocol": "NEC", ...}` |
-| **GET** | `/api/v1/signals/:index` | Retrieves single signal by index | _None_ |
-| **DELETE**| `/api/v1/signals/:index` | Deletes signal from storage by index | _None_ |
-| **POST** | `/api/v1/signals/:index/send` | Transmits stored signal by index | _None_ |
 
 ### Quick Start Example
 ```bash

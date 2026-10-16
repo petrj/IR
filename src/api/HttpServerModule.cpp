@@ -79,27 +79,6 @@ void HttpServerModule::setupRoutes() {
         handlePostMode(req, res);
     });
 
-    // Saved signals collection endpoints
-    m_server.Get("/api/v1/signals", [this](const httplib::Request& req, httplib::Response& res) {
-        handleGetSignals(req, res);
-    });
-
-    m_server.Post("/api/v1/signals", [this](const httplib::Request& req, httplib::Response& res) {
-        handlePostSignals(req, res);
-    });
-
-    // Saved signals element endpoints
-    m_server.Get(R"(/api/v1/signals/(\d+))", [this](const httplib::Request& req, httplib::Response& res) {
-        handleGetSignalByIndex(req, res);
-    });
-
-    m_server.Delete(R"(/api/v1/signals/(\d+))", [this](const httplib::Request& req, httplib::Response& res) {
-        handleDeleteSignalByIndex(req, res);
-    });
-
-    m_server.Post(R"(/api/v1/signals/(\d+)/send)", [this](const httplib::Request& req, httplib::Response& res) {
-        handlePostSendSavedSignal(req, res);
-    });
 }
 
 bool HttpServerModule::start() {
@@ -196,15 +175,10 @@ void HttpServerModule::handleRoot(const httplib::Request&, httplib::Response& re
         {"documentation", "/api/v1/status"},
         {"endpoints", {
             {"GET /api/v1/status", "Returns transceiver connection & hardware state"},
-            {"POST /api/v1/send", "Transmits an IR signal (NEC code, Raw pulse array, or stored name)"},
+            {"POST /api/v1/send", "Transmits an IR signal (NEC code or Raw pulse array)"},
             {"GET /api/v1/receive", "Pops oldest signal from receive buffer (supports ?last=true query)"},
             {"POST /api/v1/capture", "Performs synchronous single-shot capture with timeout"},
-            {"POST /api/v1/mode", "Changes transceiver mode (idle, receive, start_polling, stop_polling)"},
-            {"GET /api/v1/signals", "Lists all saved IR signals in storage"},
-            {"POST /api/v1/signals", "Saves a new IR signal to storage"},
-            {"GET /api/v1/signals/:index", "Retrieves a saved IR signal by index"},
-            {"DELETE /api/v1/signals/:index", "Deletes a saved IR signal by index"},
-            {"POST /api/v1/signals/:index/send", "Transmits a saved IR signal by index"}
+            {"POST /api/v1/mode", "Changes transceiver mode (idle, receive, start_polling, stop_polling)"}
         }}
     };
     res.set_content(j.dump(2), "application/json");

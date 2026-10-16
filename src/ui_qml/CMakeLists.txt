@@ -3,10 +3,13 @@ add_executable(ir_gui
     main.cpp
     AppController.h
     AppController.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui_tui/SignalStorage.h
+    ${CMAKE_SOURCE_DIR}/src/ui_tui/SignalStorage.cpp
 )
 
 target_include_directories(ir_gui PRIVATE
     ${CMAKE_SOURCE_DIR}/src/core
+    ${CMAKE_SOURCE_DIR}/src/ui_tui
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
@@ -15,6 +18,7 @@ target_compile_definitions(ir_gui PRIVATE
 )
 
 target_link_libraries(ir_gui PRIVATE
+    ir_core
     Qt6::Core
     Qt6::Gui
     Qt6::Quick

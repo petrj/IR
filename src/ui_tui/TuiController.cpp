@@ -235,23 +235,6 @@ void TuiController::handleReceivedSignal(const IrSignal& sig, const std::string&
             m_storage.addSignal(saved);
             std::cout << "[SUCCESS] Saved new signal \"" << name
                       << "\" to local storage (" << m_storage.getStoragePath() << ")!\n";
-
-            // Sync with HTTP API server
-            auto client = createClient(3);
-            if (client) {
-                nlohmann::json apiReq = {
-                    {"name", saved.name},
-                    {"protocol", saved.protocol},
-                    {"frequency", static_cast<int>(saved.frequency_khz)},
-                    {"timestamp", saved.timestamp},
-                    {"rawHex", saved.rawHex},
-                    {"pulses", saved.pulses}
-                };
-                auto res = client->Post("/api/v1/signals", apiReq.dump(), "application/json");
-                if (res && (res->status == 200 || res->status == 201)) {
-                    std::cout << "[API] Synced \"" << name << "\" to HTTP API server.\n";
-                }
-            }
         }
     }
 }
@@ -417,23 +400,6 @@ void TuiController::saveLastCapturedSignal() {
 
     m_storage.addSignal(saved);
     std::cout << "[SUCCESS] Saved '" << name << "' to local storage (" << m_storage.getStoragePath() << ")!\n";
-
-    // Sync with HTTP API server
-    auto client = createClient(3);
-    if (client) {
-        nlohmann::json apiReq = {
-            {"name", saved.name},
-            {"protocol", saved.protocol},
-            {"frequency", static_cast<int>(saved.frequency_khz)},
-            {"timestamp", saved.timestamp},
-            {"rawHex", saved.rawHex},
-            {"pulses", saved.pulses}
-        };
-        auto res = client->Post("/api/v1/signals", apiReq.dump(), "application/json");
-        if (res && (res->status == 200 || res->status == 201)) {
-            std::cout << "[API] Synced '" << name << "' to HTTP API server.\n";
-        }
-    }
 }
 
 void TuiController::listSavedSignals() {
@@ -474,11 +440,6 @@ void TuiController::listSavedSignals() {
             std::string delName = m_storage.getSignals()[idx - 1].name;
             m_storage.removeSignal(idx - 1);
             std::cout << "[INFO] Removed '" << delName << "' from local storage.\n";
-            // Also delete on server if available
-            auto client = createClient(2);
-            if (client) {
-                client->Delete("/api/v1/signals/" + std::to_string(idx - 1));
-            }
         }
     }
 }

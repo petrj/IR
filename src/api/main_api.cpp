@@ -68,7 +68,7 @@ int main(int argc, char* argv[]) {
         std::cout << "      Firmware:     " << transceiver->getFirmwareVersion() << "\n";
     } else {
         std::cout << "[USB] Notice: IR Transceiver hardware not detected on USB.\n";
-        std::cout << "      The REST API will remain active for status checks & signal management.\n";
+        std::cout << "      The REST API will remain active for status checks and live capture control.\n";
         std::cout << "      (Ensure udev rules are installed on Linux: see project_readme.md)\n";
     }
 
@@ -94,7 +94,7 @@ int main(int argc, char* argv[]) {
     std::cout << "         POST   /api/v1/send\n";
     std::cout << "         GET    /api/v1/receive\n";
     std::cout << "         POST   /api/v1/capture\n";
-    std::cout << "         GET    /api/v1/signals\n";
+    std::cout << "         POST   /api/v1/mode\n";
     std::cout << "\nTry querying status via:\n";
     std::cout << "  curl -s http://127.0.0.1:" << config.port << "/api/v1/status\n\n";
     std::cout << "Press Ctrl+C to terminate server.\n";

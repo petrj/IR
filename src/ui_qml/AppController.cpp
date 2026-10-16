@@ -24,7 +24,8 @@ AppController::AppController(QObject *parent)
     , m_irDeviceConnected(false)
     , m_deviceState("Unknown")
     , m_apiHost()
-        , m_serverRunning(false)
+    , m_serverRunning(false)
+    , m_storage(ir::SignalStorage::getDefaultStoragePath())
 {
     connect(m_networkManager, &QNetworkAccessManager::finished,
             this, &AppController::onReplyFinished);
@@ -97,10 +98,23 @@ QVariantList AppController::savedSignals() const
 
 void AppController::refreshSignals()
 {
-    const QUrl requestUrl = QUrl(m_apiUrl).resolved(QUrl("/api/v1/signals"));
-    QNetworkRequest request(requestUrl);
-    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-    m_networkManager->get(request);
+    m_signals.clear();
+    for (size_t i = 0; i < m_storage.count(); ++i) {
+        const auto& signal = m_storage.getSignals()[i];
+        QVariantMap entry;
+        entry["index"] = static_cast<int>(i);
+        entry["name"] = QString::fromStdString(signal.name);
+        entry["protocol"] = QString::fromStdString(signal.protocol);
+        entry["frequency"] = static_cast<int>(signal.frequency_khz);
+        entry["timestamp"] = QString::fromStdString(signal.timestamp);
+        entry["pulseCount"] = static_cast<int>(signal.pulses.size());
+        m_signals.append(entry);
+    }
+    emit savedSignalsChanged();
+    if (m_signals.isEmpty()) {
+        m_status = "No local saved signals";
+        emit statusChanged();
+    }
 }
 
 void AppController::setApiUrl(const QString &url)
@@ -175,43 +189,6 @@ void AppController::onReplyFinished(QNetworkReply *reply)
                     emit captureInProgressChanged();
                     emit statusChanged();
                 }
-            } else if (url.contains("/api/v1/signals")) {
-                // Could be a POST (save) or GET (list). If list, parse signals array.
-                if (document.isObject() && document.object().contains("signals") && document.object().value("signals").isArray()) {
-                    const QJsonArray arr = document.object().value("signals").toArray();
-                    QVariantList list;
-                    for (const QJsonValue &v : arr) {
-                        if (!v.isObject()) continue;
-                        QJsonObject o = v.toObject();
-                        QVariantMap m;
-                        m["index"] = o.value("index").toInt();
-                        m["name"] = o.value("name").toString();
-                        m["protocol"] = o.value("protocol").toString();
-                        m["frequency"] = o.value("frequency").toInt();
-                        m["timestamp"] = o.value("timestamp").toString();
-                        m["pulseCount"] = o.value("pulseCount").toInt();
-                        list.append(m);
-                    }
-                    m_signals = list;
-                    emit savedSignalsChanged();
-                    // also update capture/save state as before
-                    m_captureReady = false;
-                    m_captureInProgress = false;
-                    m_capturedPulses.clear();
-                    m_status = "Signals list updated";
-                    emit captureReadyChanged();
-                    emit captureInProgressChanged();
-                    emit statusChanged();
-                } else {
-                    // POST save response handling
-                    m_captureReady = false;
-                    m_captureInProgress = false;
-                    m_capturedPulses.clear();
-                    m_status = "Signal saved";
-                    emit captureReadyChanged();
-                    emit captureInProgressChanged();
-                    emit statusChanged();
-                }
             } else {
                 // status endpoint
                 m_serverRunning = true;
@@ -250,14 +227,14 @@ void AppController::onReplyFinished(QNetworkReply *reply)
                 }
             }
         } else {
-            if (!url.contains("/api/v1/capture") && !url.contains("/api/v1/signals")) {
+            if (!url.contains("/api/v1/capture")) {
                 m_serverRunning = true;
                 m_serverConnected = false;
                 m_status = "Server responded, but status data is invalid";
             }
         }
     } else {
-        if (!url.contains("/api/v1/capture") && !url.contains("/api/v1/signals")) {
+        if (!url.contains("/api/v1/capture")) {
             m_serverRunning = false;
             m_serverConnected = false;
             m_status = QString("Server offline: %1").arg(reply->errorString().isEmpty() ? "cannot reach API" : reply->errorString());
@@ -274,7 +251,7 @@ void AppController::onReplyFinished(QNetworkReply *reply)
         emit serverRunningChanged();
     }
 
-    if (!url.contains("/api/v1/capture") && !url.contains("/api/v1/signals")) {
+    if (!url.contains("/api/v1/capture")) {
         emit statusChanged();
     }
 
@@ -371,38 +348,24 @@ void AppController::saveCapturedSignal()
         emit captureNameChanged();
     }
 
-    QJsonObject payload;
-    payload["name"] = m_captureName;
-    payload["protocol"] = "Raw";
-    payload["frequency"] = m_capturedFrequency;
-    payload["timestamp"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
-    payload["rawHex"] = "N/A";
+    ir::SavedIrSignal saved;
+    saved.name = m_captureName.trimmed().toStdString();
+    saved.protocol = "Raw";
+    saved.frequency_khz = static_cast<uint8_t>(m_capturedFrequency);
+    saved.timestamp = QDateTime::currentDateTimeUtc().toString("yyyy-MM-dd HH:mm:ss").toStdString();
+    saved.rawHex = "N/A";
+    saved.pulses.assign(m_capturedPulses.begin(), m_capturedPulses.end());
 
-    QJsonArray pulses;
-    for (int pulse : m_capturedPulses) {
-        pulses.append(pulse);
-    }
-    payload["pulses"] = pulses;
+    m_storage.addSignal(saved);
+    refreshSignals();
 
-    const QUrl requestUrl = QUrl(m_apiUrl).resolved(QUrl("/api/v1/signals"));
-    QNetworkRequest request(requestUrl);
-    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-    const QByteArray body = QJsonDocument(payload).toJson(QJsonDocument::Compact);
-    QNetworkReply *reply = m_networkManager->post(request, body);
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        reply->deleteLater();
-        const QByteArray response = reply->readAll();
-        QJsonParseError parseError;
-        const QJsonDocument document = QJsonDocument::fromJson(response, &parseError);
-
-        m_captureReady = false;
-        m_captureInProgress = false;
-        m_capturedPulses.clear();
-        m_status = parseError.error == QJsonParseError::NoError ? "Signal saved" : "Save failed";
-        emit captureReadyChanged();
-        emit captureInProgressChanged();
-        emit statusChanged();
-    });
+    m_captureReady = false;
+    m_captureInProgress = false;
+    m_capturedPulses.clear();
+    m_status = "Signal saved locally";
+    emit captureReadyChanged();
+    emit captureInProgressChanged();
+    emit statusChanged();
 }
 
 void AppController::cancelCapture()
@@ -428,69 +391,40 @@ void AppController::addSignalManually(const QString &name, const QString &protoc
         return;
     }
 
-    QJsonObject payload;
-    payload["name"] = name.trimmed();
-    payload["protocol"] = protocol.isEmpty() ? "Raw" : protocol;
-    payload["frequency"] = frequency <= 0 ? 38 : frequency;
-    payload["timestamp"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
-    payload["rawHex"] = rawHex.trimmed().isEmpty() ? QString("N/A") : rawHex.trimmed();
+    ir::SavedIrSignal signal;
+    signal.name = name.trimmed().toStdString();
+    signal.protocol = protocol.isEmpty() ? "Raw" : protocol.toStdString();
+    signal.frequency_khz = static_cast<uint8_t>(frequency <= 0 ? 38 : frequency);
+    signal.timestamp = QDateTime::currentDateTimeUtc().toString("yyyy-MM-dd HH:mm:ss").toStdString();
+    signal.rawHex = rawHex.trimmed().isEmpty() ? "N/A" : rawHex.trimmed().toStdString();
 
     if (!pulses.isEmpty()) {
-        QJsonArray arr;
+        signal.pulses.clear();
         for (const QVariant &v : pulses) {
             bool ok = false;
-            int val = v.toInt(&ok);
-            if (ok) arr.append(val);
+            const int val = v.toInt(&ok);
+            if (ok) {
+                signal.pulses.push_back(val);
+            }
         }
-        payload["pulses"] = arr;
     }
 
-    const QUrl requestUrl = QUrl(m_apiUrl).resolved(QUrl("/api/v1/signals"));
-    QNetworkRequest request(requestUrl);
-    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-    const QByteArray body = QJsonDocument(payload).toJson(QJsonDocument::Compact);
-    QNetworkReply *reply = m_networkManager->post(request, body);
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        const QByteArray response = reply->readAll();
-        const bool ok = reply->error() == QNetworkReply::NoError;
-
-        if (ok) {
-            QJsonParseError parseError;
-            const QJsonDocument document = QJsonDocument::fromJson(response, &parseError);
-            if (parseError.error == QJsonParseError::NoError && document.isObject()) {
-                const QJsonObject obj = document.object();
-                const bool success = obj.value("success").toBool(false) || obj.value("message").toString().contains("Saved", Qt::CaseInsensitive);
-                if (success) {
-                    // Refresh the list immediately and again shortly after in case the server is still processing.
-                    refreshSignals();
-                    QTimer::singleShot(250, this, &AppController::refreshSignals);
-                    m_status = obj.value("message").toString("Signal saved");
-                    emit statusChanged();
-                    reply->deleteLater();
-                    return;
-                }
-            }
-        }
-
-        QString err = "Save failed";
-        if (!response.isEmpty()) {
-            QJsonParseError parseError;
-            const QJsonDocument document = QJsonDocument::fromJson(response, &parseError);
-            if (parseError.error == QJsonParseError::NoError && document.isObject()) {
-                const QJsonObject obj = document.object();
-                if (obj.contains("error")) {
-                    err = obj.value("error").toString();
-                }
-            }
-        }
-        if (reply->error() != QNetworkReply::NoError && !reply->errorString().isEmpty()) {
-            err = reply->errorString();
-        }
-
-        m_status = err;
+    if (signal.name.empty()) {
+        m_status = "Manual signal name is required";
         emit statusChanged();
-        reply->deleteLater();
-    });
+        return;
+    }
+
+    if (signal.pulses.empty() && signal.rawHex == "N/A") {
+        m_status = "Manual signal needs pulse values or rawHex";
+        emit statusChanged();
+        return;
+    }
+
+    m_storage.addSignal(signal);
+    refreshSignals();
+    m_status = "Signal saved locally";
+    emit statusChanged();
 }
 
 void AppController::transmitSignal()

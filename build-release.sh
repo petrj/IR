@@ -25,7 +25,7 @@ cmake --build "${BUILD_DIR}" --parallel "${JOBS}"
 
 # 3. Copy the 3 built binaries directly into build/release folder
 echo -e "\n[*] Copying the 3 built binaries to ${BUILD_DIR} folder..."
-for bin in ir_api_server ir_tui test_all; do
+for bin in ir_api_server ir_tui ir_gui test_all; do
     src_bin=$(find "${BUILD_DIR}" -type f -name "${bin}" ! -path "${BUILD_DIR}/${bin}" | head -n 1)
     if [ -n "${src_bin}" ]; then
         cp -fv "${src_bin}" "${BUILD_DIR}/${bin}"
@@ -42,8 +42,9 @@ ctest --test-dir "${BUILD_DIR}" --output-on-failure
 
 echo -e "\n========================================================"
 echo " RELEASE BUILD & TESTS COMPLETED SUCCESSFULLY!"
-echo " The 3 binaries are located in: ${BUILD_DIR}"
+echo " The binaries are located in: ${BUILD_DIR}"
 echo "   - ${BUILD_DIR}/ir_api_server"
 echo "   - ${BUILD_DIR}/ir_tui"
+echo "   - ${BUILD_DIR}/ir_gui"
 echo "   - ${BUILD_DIR}/test_all"
 echo "========================================================"

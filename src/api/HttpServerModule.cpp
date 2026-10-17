@@ -161,6 +161,7 @@ nlohmann::json HttpServerModule::signalToJson(const IrSignal& sig, const SignalS
         auto match = storage->findMatchingSignal(sig);
         if (match) {
             out["matchedSavedSignal"] = match->name;
+            out["matchedRcdName"] = match->rcdName;
         }
     }
 
@@ -624,6 +625,7 @@ void HttpServerModule::handleGetSignals(const httplib::Request&, httplib::Respon
         nlohmann::json item = {
             {"index", i},
             {"name", s.name},
+            {"rcdName", s.rcdName},
             {"protocol", s.protocol},
             {"frequency", static_cast<int>(s.frequency_khz)},
             {"timestamp", s.timestamp},
@@ -665,6 +667,7 @@ void HttpServerModule::handleGetSignalByIndex(const httplib::Request& req, httpl
     nlohmann::json out = {
         {"index", index},
         {"name", s.name},
+        {"rcdName", s.rcdName},
         {"protocol", s.protocol},
         {"frequency", static_cast<int>(s.frequency_khz)},
         {"timestamp", s.timestamp},
@@ -698,6 +701,7 @@ void HttpServerModule::handlePostSignals(const httplib::Request& req, httplib::R
 
     SavedIrSignal sig;
     sig.name = j.value("name", "Unnamed Signal");
+    sig.rcdName = j.value("rcdName", j.value("rcd", j.value("device", "Default Remote Device")));
     sig.protocol = j.value("protocol", "Raw");
     sig.frequency_khz = static_cast<uint8_t>(j.value("frequency", 38));
     sig.rawHex = j.value("rawHex", "N/A");
@@ -738,7 +742,7 @@ void HttpServerModule::handlePostSignals(const httplib::Request& req, httplib::R
         return;
     }
 
-    m_storage->addSignal(sig);
+    m_storage->addSignal(sig, sig.rcdName);
     size_t newIndex = m_storage->count() - 1;
 
     res.status = 201;

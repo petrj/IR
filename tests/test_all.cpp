@@ -412,6 +412,113 @@ void testSignalStorageUsesApplicationDataFolder() {
 #endif
 }
 
+void testRemoteControlDeviceStorageAndMigration() {
+    std::cout << "  [CORE] Testing Remote Control Device (RCD) storage and migration..." << std::endl;
+
+    std::string testPath = "/tmp/test_rcd_storage.json";
+    std::remove(testPath.c_str());
+
+    // 1. Write an OLD format JSON file (flat array of signals)
+    {
+        std::ofstream oldFile(testPath);
+        oldFile << R"([
+          {
+            "name": "Legacy TV Power",
+            "protocol": "NEC",
+            "frequency": 38,
+            "timestamp": "2026-10-01 10:00:00",
+            "rawHex": "0x12345678",
+            "pulses": [9000, -4500, 560, -560]
+          },
+          {
+            "name": "Legacy TV Mute",
+            "protocol": "NEC",
+            "frequency": 38,
+            "timestamp": "2026-10-01 10:05:00",
+            "rawHex": "0x87654321",
+            "pulses": [9000, -4500, 560, -1690]
+          }
+        ])";
+        oldFile.close();
+    }
+
+    // 2. Load with SignalStorage - should migrate to "Default Remote Device"
+    {
+        ir::SignalStorage storage(testPath);
+        assert(storage.count() == 2);
+        assert(storage.deviceCount() == 1);
+        assert(storage.hasDevice("Default Remote Device"));
+        assert(storage.count("Default Remote Device") == 2);
+
+        auto dev = storage.getDevice("Default Remote Device");
+        assert(dev != nullptr);
+        assert(dev->savedSignals.size() == 2);
+        assert(dev->savedSignals[0].name == "Legacy TV Power");
+        assert(dev->savedSignals[0].rcdName == "Default Remote Device");
+        assert(dev->savedSignals[1].name == "Legacy TV Mute");
+        assert(dev->savedSignals[1].rcdName == "Default Remote Device");
+
+        // 3. Add a signal to a NEW RCD: "Living Room TV"
+        ir::SavedIrSignal newSig;
+        newSig.name = "Volume Up";
+        newSig.protocol = "NEC";
+        newSig.frequency_khz = 38;
+        newSig.pulses = ir::IrProtocol::encodeNec(0x12, 0x34);
+        newSig.rawHex = "0x55AA55AA";
+        newSig.timestamp = "2026-10-17 12:00:00";
+
+        storage.addSignal(newSig, "Living Room TV");
+        assert(storage.deviceCount() == 2);
+        assert(storage.count() == 3);
+        assert(storage.count("Living Room TV") == 1);
+        assert(storage.count("Default Remote Device") == 2);
+
+        // 4. Add a signal to an EXISTING RCD: "Living Room TV"
+        ir::SavedIrSignal newSig2 = newSig;
+        newSig2.name = "Volume Down";
+        storage.addSignal(newSig2, "Living Room TV");
+        assert(storage.deviceCount() == 2);
+        assert(storage.count() == 4);
+        assert(storage.count("Living Room TV") == 2);
+
+        // 5. Test findMatchingSignalInDevice
+        auto matchInDev = storage.findMatchingSignalInDevice("Living Room TV", newSig.pulses);
+        assert(matchInDev.has_value());
+        assert(matchInDev->name == "Volume Up");
+        assert(matchInDev->rcdName == "Living Room TV");
+
+        auto matchNotInDev = storage.findMatchingSignalInDevice("Default Remote Device", newSig.pulses);
+        assert(!matchNotInDev.has_value());
+
+        // Global findMatchingSignal returns rcdName
+        auto matchGlobal = storage.findMatchingSignal(newSig.pulses);
+        assert(matchGlobal.has_value());
+        assert(matchGlobal->rcdName == "Living Room TV");
+
+        // 6. Test "each RCD contains 1 .. n signals":
+        // Removing all signals from "Living Room TV" must remove the device
+        assert(storage.removeSignal("Living Room TV", 0)); // removed "Volume Up", 1 left
+        assert(storage.deviceCount() == 2);
+        assert(storage.count("Living Room TV") == 1);
+        assert(storage.removeSignal("Living Room TV", 0)); // removed "Volume Down", 0 left
+        // Device should now be automatically pruned!
+        assert(storage.deviceCount() == 1);
+        assert(!storage.hasDevice("Living Room TV"));
+        assert(storage.count() == 2);
+    }
+
+    // 7. Verify persistent file on disk is in the new RCD format
+    {
+        ir::SignalStorage storage(testPath);
+        assert(storage.deviceCount() == 1);
+        assert(storage.hasDevice("Default Remote Device"));
+        assert(storage.count() == 2);
+    }
+
+    std::remove(testPath.c_str());
+}
+
+
 // ============================================================================
 // PART 2: REST HTTP API SERVER INTEGRATION TESTS
 // ============================================================================
@@ -569,6 +676,7 @@ int main(int argc, char* argv[]) {
     testIrUsbTransceiverClass();
     testSignalStorageAndMatching();
     testSignalStorageUsesApplicationDataFolder();
+    testRemoteControlDeviceStorageAndMigration();
     std::cout << "-> All ir_core tests passed!\n";
 
     std::cout << "\n[STAGE 2] Testing ir_api REST HTTP Service:\n";

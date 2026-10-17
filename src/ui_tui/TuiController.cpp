@@ -161,38 +161,78 @@ void TuiController::printMenu() {
     std::cout << "Select option (1-7, Q): " << std::flush;
 }
 
-void TuiController::displaySignalDetails(const IrSignal& signal, const std::string& title, const std::string& identifiedName) {
+void TuiController::displaySignalDetails(const IrSignal& signal, const std::string& title, const std::string& identifiedName, const std::string& identifiedRcd) {
     std::cout << "\n+------------------------------------------------------\n";
     std::cout << "| " << title << "\n";
     std::cout << "+------------------------------------------------------\n";
-    if (!identifiedName.empty()) {
-        std::cout << "| Signal Name: " << identifiedName << " [SAVED]\n";
+    if (!identifiedRcd.empty()) {
+        std::cout << "| Remote Device: " << identifiedRcd << "\n";
     }
-    std::cout << "| Pulse Count: " << signal.pulses.size() << "\n";
-    std::cout << "| Frequency:   " << static_cast<int>(signal.frequency_khz) << " kHz\n";
+    if (!identifiedName.empty()) {
+        std::cout << "| Signal Name:   " << identifiedName << " [SAVED]\n";
+    }
+    std::cout << "| Pulse Count:   " << signal.pulses.size() << "\n";
+    std::cout << "| Frequency:     " << static_cast<int>(signal.frequency_khz) << " kHz\n";
 
     DecodedCode necCode;
     if (IrProtocol::decodeNec(signal.pulses, necCode)) {
-        std::cout << "| Protocol:    NEC" << (necCode.address > 0xFF ? " (Extended 16-bit)" : "") << "\n";
-        std::cout << "| Address:     0x" << std::hex << std::uppercase << (necCode.address > 0xFF ? std::setw(4) : std::setw(2)) << std::setfill('0') << necCode.address << std::dec << "\n";
-        std::cout << "| Command:     0x" << std::hex << std::uppercase << std::setw(2) << std::setfill('0') << necCode.command << std::dec << "\n";
-        std::cout << "| Raw Hex:     0x" << std::hex << std::uppercase << std::setw(8) << std::setfill('0') << necCode.rawValue << std::dec << "\n";
+        std::cout << "| Protocol:      NEC" << (necCode.address > 0xFF ? " (Extended 16-bit)" : "") << "\n";
+        std::cout << "| Address:       0x" << std::hex << std::uppercase << (necCode.address > 0xFF ? std::setw(4) : std::setw(2)) << std::setfill('0') << necCode.address << std::dec << "\n";
+        std::cout << "| Command:       0x" << std::hex << std::uppercase << std::setw(2) << std::setfill('0') << necCode.command << std::dec << "\n";
+        std::cout << "| Raw Hex:       0x" << std::hex << std::uppercase << std::setw(8) << std::setfill('0') << necCode.rawValue << std::dec << "\n";
         std::cout << std::setfill(' ');
     } else {
-        std::cout << "| Protocol:    Raw Pulse Sequence\n";
+        std::cout << "| Protocol:      Raw Pulse Sequence\n";
     }
 
-    std::cout << "| Pulses [us]: " << signal.toString() << "\n";
+    std::cout << "| Pulses [us]:   " << signal.toString() << "\n";
     std::cout << "+------------------------------------------------------\n";
+}
+
+std::string TuiController::promptForRcd() {
+    auto deviceNames = m_storage.getDeviceNames();
+    std::cout << "\nSpecify Remote Control Device (RCD):\n";
+    if (!deviceNames.empty()) {
+        for (size_t i = 0; i < deviceNames.size(); ++i) {
+            std::cout << "  " << (i + 1) << ") [Existing] " << deviceNames[i]
+                      << " (" << m_storage.count(deviceNames[i]) << " signals)\n";
+        }
+        std::cout << "Select existing RCD (1-" << deviceNames.size() << ") or enter new RCD name: " << std::flush;
+    } else {
+        std::cout << "Enter RCD name [Default Remote Device]: " << std::flush;
+    }
+    flushTerminalInput();
+    std::string input;
+    std::getline(std::cin, input);
+    size_t first = input.find_first_not_of(" \t\r\n");
+    if (first != std::string::npos) {
+        size_t last = input.find_last_not_of(" \t\r\n");
+        input = input.substr(first, last - first + 1);
+    } else {
+        input.clear();
+    }
+
+    if (input.empty()) {
+        return deviceNames.empty() ? "Default Remote Device" : deviceNames[0];
+    }
+
+    try {
+        size_t idx = std::stoul(input);
+        if (idx >= 1 && idx <= deviceNames.size()) {
+            return deviceNames[idx - 1];
+        }
+    } catch (...) {}
+
+    return input;
 }
 
 void TuiController::handleReceivedSignal(const IrSignal& sig, const std::string& title, bool promptIfNew) {
     m_lastCaptured = sig;
     auto matched = m_storage.findMatchingSignal(sig);
     if (matched) {
-        displaySignalDetails(sig, title, matched->name);
+        displaySignalDetails(sig, title, matched->name, matched->rcdName);
         std::cout << "[IDENTIFIED] Signal already in library: \"" << matched->name
-                  << "\" (" << matched->protocol << ")\n";
+                  << "\" on device \"" << matched->rcdName << "\" (" << matched->protocol << ")\n";
     } else {
         displaySignalDetails(sig, title, "");
         std::cout << "[INFO] Signal is not in saved library.\n";
@@ -215,8 +255,11 @@ void TuiController::handleReceivedSignal(const IrSignal& sig, const std::string&
                 return;
             }
 
+            std::string rcdName = promptForRcd();
+
             SavedIrSignal saved;
             saved.name = name;
+            saved.rcdName = rcdName;
             saved.frequency_khz = sig.frequency_khz;
             saved.pulses = sig.pulses;
             saved.timestamp = currentTimestamp();
@@ -232,9 +275,9 @@ void TuiController::handleReceivedSignal(const IrSignal& sig, const std::string&
                 saved.rawHex = "N/A";
             }
 
-            m_storage.addSignal(saved);
+            m_storage.addSignal(saved, rcdName);
             std::cout << "[SUCCESS] Saved new signal \"" << name
-                      << "\" to local storage (" << m_storage.getStoragePath() << ")!\n";
+                      << "\" in RCD \"" << rcdName << "\" to local storage (" << m_storage.getStoragePath() << ")!\n";
         }
     }
 }
@@ -381,8 +424,11 @@ void TuiController::saveLastCapturedSignal() {
         return;
     }
 
+    std::string rcdName = promptForRcd();
+
     SavedIrSignal saved;
     saved.name = name;
+    saved.rcdName = rcdName;
     saved.frequency_khz = m_lastCaptured->frequency_khz;
     saved.pulses = m_lastCaptured->pulses;
     saved.timestamp = currentTimestamp();
@@ -398,8 +444,8 @@ void TuiController::saveLastCapturedSignal() {
         saved.rawHex = "N/A";
     }
 
-    m_storage.addSignal(saved);
-    std::cout << "[SUCCESS] Saved '" << name << "' to local storage (" << m_storage.getStoragePath() << ")!\n";
+    m_storage.addSignal(saved, rcdName);
+    std::cout << "[SUCCESS] Saved '" << name << "' to RCD '" << rcdName << "' in local storage (" << m_storage.getStoragePath() << ")!\n";
 }
 
 void TuiController::listSavedSignals() {
@@ -409,23 +455,28 @@ void TuiController::listSavedSignals() {
     } else {
         std::cout << "\n================ SAVED SIGNALS (" << count << ") ================\n";
         std::cout << "Storage location: " << m_storage.getStoragePath() << "\n";
-        std::cout << std::setfill(' ') << std::left << std::setw(4) << "#"
-                  << std::setw(24) << "Name"
-                  << std::setw(10) << "Protocol"
-                  << std::setw(10) << "Freq(kHz)"
-                  << std::setw(8) << "Pulses"
-                  << std::setw(20) << "Timestamp"
-                  << "\n---------------------------------------------------------------\n";
+        std::cout << "Remote Control Devices (" << m_storage.deviceCount() << "):\n";
 
-        const auto& list = m_storage.getSignals();
-        for (size_t i = 0; i < list.size(); ++i) {
-            std::cout << std::left << std::setw(4) << (i + 1)
-                      << std::setw(24) << list[i].name
-                      << std::setw(10) << list[i].protocol
-                      << std::setw(10) << static_cast<int>(list[i].frequency_khz)
-                      << std::setw(8) << list[i].pulses.size()
-                      << std::setw(20) << list[i].timestamp
-                      << "\n";
+        size_t globalIdx = 1;
+        for (const auto& dev : m_storage.getDevices()) {
+            std::cout << "\n  [" << dev.name << " (" << dev.savedSignals.size() << " signal" << (dev.savedSignals.size() == 1 ? "" : "s") << ")]\n";
+            std::cout << std::setfill(' ') << std::left << std::setw(4) << "    #"
+                      << std::setw(24) << "Name"
+                      << std::setw(10) << "Protocol"
+                      << std::setw(10) << "Freq(kHz)"
+                      << std::setw(8) << "Pulses"
+                      << std::setw(20) << "Timestamp"
+                      << "\n    -----------------------------------------------------------\n";
+
+            for (const auto& sig : dev.savedSignals) {
+                std::cout << "    " << std::left << std::setw(4) << globalIdx++
+                          << std::setw(24) << sig.name
+                          << std::setw(10) << sig.protocol
+                          << std::setw(10) << static_cast<int>(sig.frequency_khz)
+                          << std::setw(8) << sig.pulses.size()
+                          << std::setw(20) << sig.timestamp
+                          << "\n";
+            }
         }
         std::cout << "===============================================================\n";
     }
@@ -437,9 +488,11 @@ void TuiController::listSavedSignals() {
         std::istringstream iss(act.substr(1));
         size_t idx;
         if (iss >> idx && idx >= 1 && idx <= m_storage.count()) {
-            std::string delName = m_storage.getSignals()[idx - 1].name;
+            auto sigOpt = m_storage.getSignal(idx - 1);
+            std::string delName = sigOpt ? sigOpt->name : "Signal";
+            std::string delRcd = sigOpt ? sigOpt->rcdName : "";
             m_storage.removeSignal(idx - 1);
-            std::cout << "[INFO] Removed '" << delName << "' from local storage.\n";
+            std::cout << "[INFO] Removed '" << delName << "' (" << delRcd << ") from local storage.\n";
         }
     }
 }
@@ -449,15 +502,18 @@ void TuiController::transmitSavedSignal() {
     std::cout << "\nTransmit Options:\n";
     std::cout << "  0) Default Sharp Repro EQ Preset (" << DEFAULT_SHARP_PULSES.size() << " pulses)\n";
     if (count > 0) {
-        const auto& list = m_storage.getSignals();
-        for (size_t i = 0; i < list.size(); ++i) {
-            std::cout << "  " << (i + 1) << ") " << list[i].name
-                      << " (" << list[i].protocol << ", " << list[i].pulses.size() << " pulses)\n";
+        size_t globalIdx = 1;
+        for (const auto& dev : m_storage.getDevices()) {
+            std::cout << "\n  [" << dev.name << "]\n";
+            for (const auto& sig : dev.savedSignals) {
+                std::cout << "    " << globalIdx++ << ") " << sig.name
+                          << " (" << sig.protocol << ", " << sig.pulses.size() << " pulses)\n";
+            }
         }
     } else {
         std::cout << "  (No saved signals found in local storage: " << m_storage.getStoragePath() << ")\n";
     }
-    std::cout << "Select signal number or name to transmit (or 'M' for manual pulses): " << std::flush;
+    std::cout << "\nSelect signal number or name to transmit (or 'M' for manual pulses): " << std::flush;
 
     std::string choice;
     std::getline(std::cin, choice);

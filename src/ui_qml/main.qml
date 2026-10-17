@@ -40,7 +40,13 @@ Window {
 
                 Row {
                     spacing: 8
-                    Text { text: "Saved Signals"; color: "#e2e8f0"; font.pixelSize: 16; font.bold: true }
+                    Text {
+                        text: "Saved Signals"
+                        color: "#e2e8f0"
+                        font.pixelSize: 16
+                        font.bold: true
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
                     Button {
                         text: "↻"
                         width: 32
@@ -61,6 +67,23 @@ Window {
                         height: 28
                         font.pixelSize: 14
                         onClicked: appController.startCapture()
+                    }
+
+                    ComboBox {
+                        id: deviceFilterCombo
+                        width: 170
+                        height: 28
+                        font.pixelSize: 12
+                        model: {
+                            var m = ["All Devices"];
+                            for (var i = 0; i < appController.rcdList.length; ++i) {
+                                m.push(appController.rcdList[i]);
+                            }
+                            return m;
+                        }
+                        onCurrentTextChanged: {
+                            appController.selectedDeviceFilter = currentText;
+                        }
                     }
                 }
 
@@ -92,7 +115,7 @@ Window {
                     }
                     delegate: Rectangle {
                         width: signalList.width - 10
-                        height: 62
+                        height: 68
                         radius: 8
                         color: index % 2 === 0 ? "#071a2a" : "#061423"
                         border.color: "#1e293b"
@@ -105,27 +128,51 @@ Window {
 
                             Column {
                                 width: parent.width - 120
-                                spacing: 4
+                                spacing: 3
 
-                                Text {
-                                    text: modelData.name || "Unnamed"
-                                    color: "#f8fafc"
-                                    font.pixelSize: 15
-                                    font.bold: true
+                                Row {
+                                    spacing: 8
                                     width: parent.width
-                                    elide: Text.ElideRight
+
+                                    Rectangle {
+                                        height: 18
+                                        radius: 4
+                                        color: "#1e293b"
+                                        border.color: "#38bdf8"
+                                        border.width: 1
+                                        implicitWidth: rcdBadgeText.implicitWidth + 8
+                                        anchors.verticalCenter: parent.verticalCenter
+
+                                        Text {
+                                            id: rcdBadgeText
+                                            anchors.centerIn: parent
+                                            text: modelData.rcdName || "Default Remote Device"
+                                            color: "#38bdf8"
+                                            font.pixelSize: 10
+                                            font.bold: true
+                                        }
+                                    }
+
+                                    Text {
+                                        text: modelData.name || "Unnamed"
+                                        color: "#f8fafc"
+                                        font.pixelSize: 14
+                                        font.bold: true
+                                        elide: Text.ElideRight
+                                        anchors.verticalCenter: parent.verticalCenter
+                                    }
                                 }
 
                                 Text {
                                     text: (modelData.protocol || "Raw") + " • " + (modelData.pulseCount || 0) + " pulses • " + (modelData.frequency || 38) + " kHz"
                                     color: "#cbd5e1"
-                                    font.pixelSize: 12
+                                    font.pixelSize: 11
                                 }
 
                                 Text {
                                     text: modelData.timestamp || ""
                                     color: "#64748b"
-                                    font.pixelSize: 11
+                                    font.pixelSize: 10
                                     width: parent.width
                                     elide: Text.ElideRight
                                 }

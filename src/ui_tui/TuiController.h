@@ -43,8 +43,9 @@ public:
 private:
     void printBanner() const;
     void printMenu();
-    void displaySignalDetails(const IrSignal& signal, const std::string& title = "CAPTURED IR SIGNAL", const std::string& identifiedName = "");
+    void displaySignalDetails(const IrSignal& signal, const std::string& title = "CAPTURED IR SIGNAL", const std::string& identifiedName = "", const std::string& identifiedRcd = "");
     void handleReceivedSignal(const IrSignal& sig, const std::string& title = "NEW IR SIGNAL CAPTURED", bool promptIfNew = true);
+    std::string promptForRcd();
     std::unique_ptr<httplib::Client> createClient(int timeoutSeconds = 5) const;
 
     std::string m_apiBaseUrl{"http://127.0.0.1:8080"};

@@ -13,6 +13,7 @@ Designed with **zero Qt dependencies**, `ir_core` relies strictly on the C++17 S
   - [1. IrUsbTransceiver](#1-irusbtransceiver)
   - [2. IrProtocol & Data Models](#2-irprotocol--data-models)
   - [3. RingBuffer](#3-ringbuffer)
+  - [4. SignalStorage & Remote Control Devices (RCD)](#4-signalstorage--remote-control-devices-rcd)
 - [Hardware & USB Protocol](#-hardware--usb-protocol)
   - [USB Endpoints & Device ID](#usb-endpoints--device-id)
   - [Framing & Multi-Packet Fragmentation](#framing--multi-packet-fragmentation)

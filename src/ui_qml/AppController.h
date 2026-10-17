@@ -4,6 +4,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QStringList>
 #include <QVector>
 #include <QVariant>
 
@@ -26,6 +27,9 @@ class AppController : public QObject
     Q_PROPERTY(QString deviceState READ deviceState NOTIFY deviceStateChanged)
     Q_PROPERTY(QString usbStatusDetails READ usbStatusDetails NOTIFY usbStatusDetailsChanged)
     Q_PROPERTY(QString captureName READ captureName WRITE setCaptureName NOTIFY captureNameChanged)
+    Q_PROPERTY(QString captureRcdName READ captureRcdName WRITE setCaptureRcdName NOTIFY captureRcdNameChanged)
+    Q_PROPERTY(QStringList rcdList READ rcdList NOTIFY rcdListChanged)
+    Q_PROPERTY(QString selectedDeviceFilter READ selectedDeviceFilter WRITE setSelectedDeviceFilter NOTIFY selectedDeviceFilterChanged)
 
 public:
     explicit AppController(QObject *parent = nullptr);
@@ -36,6 +40,9 @@ public:
     bool captureInProgress() const;
     bool captureReady() const;
     QString captureName() const;
+    QString captureRcdName() const;
+    QStringList rcdList() const;
+    QString selectedDeviceFilter() const;
     bool irDeviceConnected() const;
     QString deviceState() const;
     QString usbStatusDetails() const;
@@ -44,19 +51,21 @@ public:
     QVariantList savedSignals() const;
     void setApiUrl(const QString &url);
     void setCaptureName(const QString &name);
+    void setCaptureRcdName(const QString &name);
+    void setSelectedDeviceFilter(const QString &filter);
 
 public slots:
     void refreshStatus();
     void refreshSignals();
     void startCapture();
     Q_INVOKABLE QVariantMap getSignalDetails(int index) const;
-    Q_INVOKABLE void addSignalManually(const QString &name, const QString &protocol, int frequency, const QString &rawHex, const QVariantList &pulses);
-    Q_INVOKABLE void updateSignal(int index, const QString &name, const QString &protocol, int frequency, const QString &rawHex, const QVariantList &pulses);
+    Q_INVOKABLE void addSignalManually(const QString &name, const QString &protocol, int frequency, const QString &rawHex, const QVariantList &pulses, const QString &rcdName = QString());
+    Q_INVOKABLE void updateSignal(int index, const QString &name, const QString &protocol, int frequency, const QString &rawHex, const QVariantList &pulses, const QString &rcdName = QString());
     Q_INVOKABLE void removeSavedSignal(int index);
     Q_INVOKABLE void startServer();
     Q_INVOKABLE void transmitSavedSignal(int index);
     Q_INVOKABLE void refreshUsbStatusDialog();
-    void saveCapturedSignal();
+    Q_INVOKABLE void saveCapturedSignal(const QString &rcdName = QString(), const QString &signalName = QString());
     void cancelCapture();
     void transmitSignal();
 
@@ -73,6 +82,9 @@ signals:
     void serverRunningChanged();
     void savedSignalsChanged();
     void captureNameChanged();
+    void captureRcdNameChanged();
+    void rcdListChanged();
+    void selectedDeviceFilterChanged();
 
 private slots:
     void onReplyFinished(QNetworkReply *reply);
@@ -84,6 +96,8 @@ private:
     bool m_captureInProgress;
     bool m_captureReady;
     QString m_captureName;
+    QString m_captureRcdName;
+    QString m_selectedDeviceFilter{"All Devices"};
     QVector<int> m_capturedPulses;
     int m_capturedFrequency;
     QNetworkAccessManager *m_networkManager;

@@ -22,6 +22,8 @@ AppController::AppController(QObject *parent)
     , m_captureInProgress(false)
     , m_captureReady(false)
     , m_captureName("Captured Signal")
+    , m_captureRcdName("Default Remote Device")
+    , m_selectedDeviceFilter("All Devices")
     , m_capturedFrequency(38)
     , m_networkManager(new QNetworkAccessManager(this))
     , m_refreshTimer(new QTimer(this))
@@ -76,6 +78,29 @@ QString AppController::captureName() const
     return m_captureName;
 }
 
+QString AppController::captureRcdName() const
+{
+    return m_captureRcdName;
+}
+
+QStringList AppController::rcdList() const
+{
+    QStringList list;
+    auto names = m_storage.getDeviceNames();
+    for (const auto& n : names) {
+        list.append(QString::fromStdString(n));
+    }
+    if (list.isEmpty()) {
+        list.append("Default Remote Device");
+    }
+    return list;
+}
+
+QString AppController::selectedDeviceFilter() const
+{
+    return m_selectedDeviceFilter;
+}
+
 bool AppController::irDeviceConnected() const
 {
     return m_irDeviceConnected;
@@ -109,11 +134,18 @@ QVariantList AppController::savedSignals() const
 void AppController::refreshSignals()
 {
     m_signals.clear();
-    for (size_t i = 0; i < m_storage.count(); ++i) {
-        const auto& signal = m_storage.getSignals()[i];
+    const auto& allSignals = m_storage.getSignals();
+    for (size_t i = 0; i < allSignals.size(); ++i) {
+        const auto& signal = allSignals[i];
+        if (m_selectedDeviceFilter != "All Devices" && !m_selectedDeviceFilter.isEmpty()) {
+            if (QString::fromStdString(signal.rcdName) != m_selectedDeviceFilter) {
+                continue;
+            }
+        }
         QVariantMap entry;
         entry["index"] = static_cast<int>(i);
         entry["name"] = QString::fromStdString(signal.name);
+        entry["rcdName"] = QString::fromStdString(signal.rcdName);
         entry["protocol"] = QString::fromStdString(signal.protocol);
         entry["frequency"] = static_cast<int>(signal.frequency_khz);
         entry["timestamp"] = QString::fromStdString(signal.timestamp);
@@ -121,8 +153,9 @@ void AppController::refreshSignals()
         m_signals.append(entry);
     }
     emit savedSignalsChanged();
+    emit rcdListChanged();
     if (m_signals.isEmpty()) {
-        m_status = "No local saved signals";
+        m_status = "No saved signals";
         emit statusChanged();
     }
 }
@@ -144,6 +177,25 @@ void AppController::setCaptureName(const QString &name)
 
     m_captureName = name;
     emit captureNameChanged();
+}
+
+void AppController::setCaptureRcdName(const QString &name)
+{
+    if (m_captureRcdName == name)
+        return;
+
+    m_captureRcdName = name;
+    emit captureRcdNameChanged();
+}
+
+void AppController::setSelectedDeviceFilter(const QString &filter)
+{
+    if (m_selectedDeviceFilter == filter)
+        return;
+
+    m_selectedDeviceFilter = filter;
+    emit selectedDeviceFilterChanged();
+    refreshSignals();
 }
 
 void AppController::refreshStatus()
@@ -305,6 +357,7 @@ QVariantMap AppController::getSignalDetails(int index) const
     const auto signal = m_storage.getSignals()[index];
     details["index"] = index;
     details["name"] = QString::fromStdString(signal.name);
+    details["rcdName"] = QString::fromStdString(signal.rcdName);
     details["protocol"] = QString::fromStdString(signal.protocol);
     details["frequency"] = static_cast<int>(signal.frequency_khz);
     details["timestamp"] = QString::fromStdString(signal.timestamp);
@@ -318,7 +371,7 @@ QVariantMap AppController::getSignalDetails(int index) const
     return details;
 }
 
-void AppController::updateSignal(int index, const QString &name, const QString &protocol, int frequency, const QString &rawHex, const QVariantList &pulses)
+void AppController::updateSignal(int index, const QString &name, const QString &protocol, int frequency, const QString &rawHex, const QVariantList &pulses, const QString &rcdName)
 {
     if (index < 0 || static_cast<size_t>(index) >= m_storage.count()) {
         m_status = "Invalid saved signal index";
@@ -338,9 +391,18 @@ void AppController::updateSignal(int index, const QString &name, const QString &
         return;
     }
 
+    auto existingOpt = m_storage.getSignal(static_cast<size_t>(index));
+    if (!existingOpt) {
+        m_status = "Signal not found";
+        emit statusChanged();
+        return;
+    }
+
     ir::SavedIrSignal updated;
-    const auto existing = m_storage.getSignals()[index];
+    const auto existing = *existingOpt;
     updated.name = name.trimmed().toStdString();
+    std::string targetRcd = rcdName.trimmed().isEmpty() ? existing.rcdName : rcdName.trimmed().toStdString();
+    updated.rcdName = targetRcd;
     updated.protocol = protocol.isEmpty() ? "Raw" : protocol.toStdString();
     updated.frequency_khz = static_cast<uint8_t>(frequency <= 0 ? 38 : frequency);
     updated.timestamp = QDateTime::currentDateTimeUtc().toString("yyyy-MM-dd HH:mm:ss").toStdString();
@@ -442,7 +504,7 @@ void AppController::startCapture()
     });
 }
 
-void AppController::saveCapturedSignal()
+void AppController::saveCapturedSignal(const QString &rcdName, const QString &signalName)
 {
     if (m_capturedPulses.isEmpty()) {
         m_captureReady = false;
@@ -450,26 +512,45 @@ void AppController::saveCapturedSignal()
         return;
     }
 
-    if (m_captureName.trimmed().isEmpty()) {
-        m_captureName = "Captured Signal";
-        emit captureNameChanged();
+    QString sigName = !signalName.trimmed().isEmpty() ? signalName.trimmed() : m_captureName.trimmed();
+    if (sigName.isEmpty()) {
+        sigName = "Captured Signal";
     }
 
+    QString targetRcd = !rcdName.trimmed().isEmpty() ? rcdName.trimmed() : m_captureRcdName.trimmed();
+    if (targetRcd.isEmpty()) {
+        targetRcd = "Default Remote Device";
+    }
+
+    m_captureName = sigName;
+    m_captureRcdName = targetRcd;
+    emit captureNameChanged();
+    emit captureRcdNameChanged();
+
     ir::SavedIrSignal saved;
-    saved.name = m_captureName.trimmed().toStdString();
+    saved.name = sigName.toStdString();
+    saved.rcdName = targetRcd.toStdString();
     saved.protocol = "Raw";
     saved.frequency_khz = static_cast<uint8_t>(m_capturedFrequency);
     saved.timestamp = QDateTime::currentDateTimeUtc().toString("yyyy-MM-dd HH:mm:ss").toStdString();
     saved.rawHex = "N/A";
     saved.pulses.assign(m_capturedPulses.begin(), m_capturedPulses.end());
 
-    m_storage.addSignal(saved);
+    ir::DecodedCode necCode;
+    if (ir::IrProtocol::decodeNec(saved.pulses, necCode)) {
+        saved.protocol = "NEC";
+        std::ostringstream ss;
+        ss << "0x" << std::hex << std::uppercase << std::setw(8) << std::setfill('0') << necCode.rawValue;
+        saved.rawHex = ss.str();
+    }
+
+    m_storage.addSignal(saved, targetRcd.toStdString());
     refreshSignals();
 
     m_captureReady = false;
     m_captureInProgress = false;
     m_capturedPulses.clear();
-    m_status = "Signal saved locally";
+    m_status = QString("Saved signal '%1' to RCD '%2'").arg(sigName).arg(targetRcd);
     emit captureReadyChanged();
     emit captureInProgressChanged();
     emit statusChanged();
@@ -484,7 +565,7 @@ void AppController::cancelCapture()
     emit captureInProgressChanged();
 }
 
-void AppController::addSignalManually(const QString &name, const QString &protocol, int frequency, const QString &rawHex, const QVariantList &pulses)
+void AppController::addSignalManually(const QString &name, const QString &protocol, int frequency, const QString &rawHex, const QVariantList &pulses, const QString &rcdName)
 {
     if (name.trimmed().isEmpty()) {
         m_status = "Manual signal name is required";
@@ -498,8 +579,11 @@ void AppController::addSignalManually(const QString &name, const QString &protoc
         return;
     }
 
+    QString targetRcd = rcdName.trimmed().isEmpty() ? "Default Remote Device" : rcdName.trimmed();
+
     ir::SavedIrSignal signal;
     signal.name = name.trimmed().toStdString();
+    signal.rcdName = targetRcd.toStdString();
     signal.protocol = protocol.isEmpty() ? "Raw" : protocol.toStdString();
     signal.frequency_khz = static_cast<uint8_t>(frequency <= 0 ? 38 : frequency);
     signal.timestamp = QDateTime::currentDateTimeUtc().toString("yyyy-MM-dd HH:mm:ss").toStdString();
@@ -528,9 +612,9 @@ void AppController::addSignalManually(const QString &name, const QString &protoc
         return;
     }
 
-    m_storage.addSignal(signal);
+    m_storage.addSignal(signal, targetRcd.toStdString());
     refreshSignals();
-    m_status = "Signal saved locally";
+    m_status = QString("Saved signal '%1' to RCD '%2'").arg(name).arg(targetRcd);
     emit statusChanged();
 }
 

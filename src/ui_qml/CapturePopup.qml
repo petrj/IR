@@ -5,11 +5,13 @@ Popup {
     id: capturePopup
     modal: true
     focus: true
-    width: 320
-    height: appController.captureReady ? 180 : 120
+    width: 360
+    height: appController.captureReady ? (isNewRcdSelected ? 310 : 260) : 120
     closePolicy: Popup.NoAutoClose
     anchors.centerIn: parent
     visible: appController.captureInProgress || appController.captureReady
+
+    property bool isNewRcdSelected: (rcdCombo.currentText === "+ Create New Remote Device...") || (appController.rcdList.length === 0)
 
     background: Rectangle {
         radius: 12
@@ -21,7 +23,7 @@ Popup {
     Column {
         anchors.fill: parent
         anchors.margins: 18
-        spacing: 12
+        spacing: 10
 
         Row {
             spacing: 10
@@ -38,7 +40,7 @@ Popup {
             }
 
             Text {
-                text: appController.captureReady ? "Signal captured" : "Capturing..."
+                text: appController.captureReady ? "Signal Captured" : "Capturing..."
                 font.pixelSize: 17
                 font.bold: true
                 color: "#e5e7eb"
@@ -52,29 +54,81 @@ Popup {
         }
 
         Text {
-            text: appController.captureReady ? "Add a signal name and save it." : "Listening for IR signal..."
+            text: appController.captureReady ? "Specify Remote Control Device (RCD) and signal name:" : "Listening for IR signal..."
             color: "#cbd5e1"
-            font.pixelSize: 13
+            font.pixelSize: 12
             visible: true
+            anchors.horizontalCenter: parent.horizontalCenter
         }
 
         TextField {
-            width: 260
+            id: signalNameField
+            width: parent.width
             visible: appController.captureReady
             text: appController.captureName
             onEditingFinished: appController.captureName = text
-            placeholderText: "Signal name"
-            anchors.horizontalCenter: parent.horizontalCenter
+            placeholderText: "Signal name (e.g. TV Power)"
+        }
+
+        Column {
+            width: parent.width
+            spacing: 6
+            visible: appController.captureReady
+
+            Text {
+                text: "Remote Control Device (RCD):"
+                color: "#94a3b8"
+                font.pixelSize: 11
+                font.bold: true
+            }
+
+            ComboBox {
+                id: rcdCombo
+                width: parent.width
+                visible: appController.rcdList.length > 0
+                model: {
+                    var list = [];
+                    for (var i = 0; i < appController.rcdList.length; ++i) {
+                        list.push(appController.rcdList[i]);
+                    }
+                    list.push("+ Create New Remote Device...");
+                    return list;
+                }
+            }
+
+            TextField {
+                id: newRcdField
+                width: parent.width
+                visible: capturePopup.isNewRcdSelected
+                placeholderText: "Enter new Remote Device name"
+                text: appController.rcdList.length === 0 ? "Default Remote Device" : ""
+            }
         }
 
         Row {
-            spacing: 10
+            spacing: 12
             anchors.horizontalCenter: parent.horizontalCenter
+            topPadding: 4
 
             Button {
                 visible: appController.captureReady
-                text: "Save"
-                onClicked: appController.saveCapturedSignal()
+                text: "Save Signal"
+                onClicked: {
+                    var rcd = "";
+                    if (!capturePopup.isNewRcdSelected && rcdCombo.currentText.length > 0) {
+                        rcd = rcdCombo.currentText;
+                    } else {
+                        rcd = newRcdField.text.trim();
+                        if (rcd.length === 0) {
+                            rcd = "Default Remote Device";
+                        }
+                    }
+                    var sName = signalNameField.text.trim();
+                    if (sName.length === 0) {
+                        sName = "Captured Signal";
+                    }
+                    appController.saveCapturedSignal(rcd, sName);
+                }
             }
 
             Button {

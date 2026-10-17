@@ -18,4 +18,5 @@ target_include_directories(ir_core PUBLIC
 target_link_libraries(ir_core PUBLIC
     PkgConfig::LIBUSB
     Threads::Threads
+    nlohmann_json::nlohmann_json
 )

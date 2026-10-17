@@ -5,8 +5,8 @@ Popup {
     id: manualAddPopup
     modal: true
     focus: true
-    width: 420
-    height: 320
+    width: 440
+    height: 380
     closePolicy: Popup.CloseOnEscape
     anchors.centerIn: parent
     background: Rectangle { color: "#0b1220"; radius: 8; border.color: "#1f2937" }
@@ -14,15 +14,20 @@ Popup {
     property bool editing: false
     property int editingIndex: -1
     property string selectedProtocol: "Raw"
+    property bool isNewRcdSelected: (manualRcdCombo.currentText === "+ New Remote Device...") || (appController.rcdList.length === 0)
 
     function resetForm() {
         manualName.text = "";
         manualFreq.text = "38";
         manualRawHex.text = "";
         manualPulses.text = "";
+        manualNewRcd.text = "";
         manualAddPopup.selectedProtocol = "Raw";
         editing = false;
         editingIndex = -1;
+        if (manualRcdCombo.count > 0) {
+            manualRcdCombo.currentIndex = 0;
+        }
     }
 
     function openForNew() {
@@ -40,11 +45,26 @@ Popup {
         manualRawHex.text = signal.rawHex || "";
         manualAddPopup.selectedProtocol = signal.protocol || "Raw";
 
+        var rcdName = signal.rcdName || "Default Remote Device";
+        var foundIdx = -1;
+        for (var i = 0; i < manualRcdCombo.count; ++i) {
+            if (manualRcdCombo.textAt(i) === rcdName) {
+                foundIdx = i;
+                break;
+            }
+        }
+        if (foundIdx >= 0) {
+            manualRcdCombo.currentIndex = foundIdx;
+        } else {
+            manualNewRcd.text = rcdName;
+            manualRcdCombo.currentIndex = manualRcdCombo.count - 1; // "+ New Remote Device..."
+        }
+
         var pulses = signal.pulses || [];
         var pulseText = "";
-        for (var i = 0; i < pulses.length; ++i) {
-            if (i > 0) pulseText += ",";
-            pulseText += pulses[i];
+        for (var p = 0; p < pulses.length; ++p) {
+            if (p > 0) pulseText += ",";
+            pulseText += pulses[p];
         }
         manualPulses.text = pulseText;
 
@@ -53,7 +73,7 @@ Popup {
 
     Column {
         anchors.fill: parent
-        anchors.margins: 12
+        anchors.margins: 14
         spacing: 8
 
         Text {
@@ -63,8 +83,35 @@ Popup {
             font.bold: true
         }
 
-        TextField { id: manualName; placeholderText: "Name"; width: parent.width }
-        Row { spacing: 8
+        TextField { id: manualName; placeholderText: "Signal Name"; width: parent.width }
+
+        Row {
+            width: parent.width
+            spacing: 8
+
+            ComboBox {
+                id: manualRcdCombo
+                width: manualAddPopup.isNewRcdSelected ? 180 : parent.width
+                model: {
+                    var list = [];
+                    for (var i = 0; i < appController.rcdList.length; ++i) {
+                        list.push(appController.rcdList[i]);
+                    }
+                    list.push("+ New Remote Device...");
+                    return list;
+                }
+            }
+
+            TextField {
+                id: manualNewRcd
+                visible: manualAddPopup.isNewRcdSelected
+                width: parent.width - manualRcdCombo.width - 8
+                placeholderText: "New Remote Device name"
+            }
+        }
+
+        Row {
+            spacing: 8
             Button {
                 text: "Raw"
                 checkable: true
@@ -85,7 +132,7 @@ Popup {
                     id: manualFreq
                     placeholderText: "Frequency"
                     text: "38"
-                    width: 120
+                    width: 100
                 }
 
                 Text {
@@ -96,10 +143,15 @@ Popup {
                 }
             }
         }
-        TextArea { id: manualRawHex; placeholderText: "rawHex (optional)"; height: 40; width: parent.width }
-        TextArea { id: manualPulses; placeholderText: "Pulses (comma-separated microseconds)"; height: 80; width: parent.width }
 
-        Row { spacing: 8; anchors.horizontalCenter: parent.horizontalCenter
+        TextArea { id: manualRawHex; placeholderText: "rawHex (optional)"; height: 36; width: parent.width }
+        TextArea { id: manualPulses; placeholderText: "Pulses (comma-separated microseconds)"; height: 64; width: parent.width }
+
+        Row {
+            spacing: 12
+            anchors.horizontalCenter: parent.horizontalCenter
+            topPadding: 4
+
             Button {
                 text: "Save"
                 onClicked: {
@@ -115,10 +167,20 @@ Popup {
                     }
                     var proto = manualAddPopup.selectedProtocol || "Raw";
 
-                    if (manualAddPopup.editing) {
-                        appController.updateSignal(manualAddPopup.editingIndex, manualName.text, proto, freq, raw, pulsesArr);
+                    var chosenRcd = "";
+                    if (!manualAddPopup.isNewRcdSelected && manualRcdCombo.currentText.length > 0) {
+                        chosenRcd = manualRcdCombo.currentText;
                     } else {
-                        appController.addSignalManually(manualName.text, proto, freq, raw, pulsesArr);
+                        chosenRcd = manualNewRcd.text.trim();
+                        if (chosenRcd.length === 0) {
+                            chosenRcd = "Default Remote Device";
+                        }
+                    }
+
+                    if (manualAddPopup.editing) {
+                        appController.updateSignal(manualAddPopup.editingIndex, manualName.text, proto, freq, raw, pulsesArr, chosenRcd);
+                    } else {
+                        appController.addSignalManually(manualName.text, proto, freq, raw, pulsesArr, chosenRcd);
                     }
                     manualAddPopup.close();
                 }

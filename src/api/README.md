@@ -313,23 +313,29 @@ Supported `mode` values:
 
 ---
 
-### Local Signal Storage Model
+### Local Signal Storage Model & Remote Control Devices (RCD)
 
-Signal persistence is intentionally kept out of the REST API surface. The `SignalStorage` class remains available in the project for the desktop TUI/QML apps, and it stores the JSON database in an application-data directory instead of over HTTP.
+Signal persistence is intentionally kept out of the public REST API surface. The `SignalStorage` class is utilized directly by the desktop TUI/QML apps, and stores a JSON database in an application-data directory.
 
-On Linux, the default location is typically:
+Signals are organized into **Remote Control Devices (RCD)**:
+* Each signal belongs to exactly one RCD.
+* Each RCD has a unique `name` and contains $1 \dots n$ signals.
+* Legacy files containing a flat array of signals automatically migrate to an RCD named `"Default Remote Device"`.
+* When signals are matched during receive or capture operations (`signalToJson`), the response includes both `"matchedSavedSignal"` and `"matchedRcdName"`.
+
+On Linux, the default storage location is typically:
 
 ```bash
 ~/.config/IR/saved_ir_signals.json
 ```
 
-On Windows, the default location is typically:
+On Windows, the default storage location is typically:
 
 ```powershell
 %APPDATA%\IR\saved_ir_signals.json
 ```
 
-The `ir_api_server` process may still instantiate the class internally for signal matching and metadata enrichment, but it does not expose CRUD endpoints for database management from the network API.
+The `ir_api_server` process instantiates the class internally for signal matching, device identification, and metadata enrichment, while keeping the network surface hardware-centric.
 
 ---
 

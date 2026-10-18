@@ -59,13 +59,13 @@ public slots:
     void refreshSignals();
     void startCapture();
     Q_INVOKABLE QVariantMap getSignalDetails(int index) const;
-    Q_INVOKABLE void addSignalManually(const QString &name, const QString &protocol, int frequency, const QString &rawHex, const QVariantList &pulses, const QString &rcdName = QString());
-    Q_INVOKABLE void updateSignal(int index, const QString &name, const QString &protocol, int frequency, const QString &rawHex, const QVariantList &pulses, const QString &rcdName = QString());
+    Q_INVOKABLE void addSignalManually(const QString &name, const QString &protocol, int frequency, const QString &rawHex, const QVariantList &pulses, const QString &rcdName = QString(), const QString &shellCommand = QString());
+    Q_INVOKABLE void updateSignal(int index, const QString &name, const QString &protocol, int frequency, const QString &rawHex, const QVariantList &pulses, const QString &rcdName = QString(), const QString &shellCommand = QString());
     Q_INVOKABLE void removeSavedSignal(int index);
     Q_INVOKABLE void startServer();
     Q_INVOKABLE void transmitSavedSignal(int index);
     Q_INVOKABLE void refreshUsbStatusDialog();
-    Q_INVOKABLE void saveCapturedSignal(const QString &rcdName = QString(), const QString &signalName = QString());
+    Q_INVOKABLE void saveCapturedSignal(const QString &rcdName = QString(), const QString &signalName = QString(), const QString &shellCommand = QString());
     void cancelCapture();
     void transmitSignal();
 

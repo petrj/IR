@@ -338,10 +338,12 @@ void testSignalStorageAndMatching() {
         sig1.frequency_khz = 38;
         sig1.pulses = ir::IrProtocol::encodeNec(0x00, 0x18);
         sig1.timestamp = "2026-10-03 21:00:00";
+        sig1.shellCommand = "echo TV Power";
 
         storage.addSignal(sig1);
         assert(storage.count() == 1);
         assert(storage.getSignals()[0].name == "Test TV Power");
+        assert(storage.getSignals()[0].shellCommand == "echo TV Power");
 
         ir::SavedIrSignal sig1Updated;
         sig1Updated.name = "Test TV Power Updated";
@@ -350,9 +352,11 @@ void testSignalStorageAndMatching() {
         sig1Updated.frequency_khz = 40;
         sig1Updated.pulses = { 1000, -1000, 2000, -2000 };
         sig1Updated.timestamp = "2026-10-04 11:00:00";
+        sig1Updated.shellCommand = "amixer set Master 5%+";
         assert(storage.updateSignal(0, sig1Updated));
         assert(storage.getSignals()[0].name == "Test TV Power Updated");
         assert(storage.getSignals()[0].frequency_khz == 40);
+        assert(storage.getSignals()[0].shellCommand == "amixer set Master 5%+");
     }
 
     {
@@ -360,6 +364,7 @@ void testSignalStorageAndMatching() {
         assert(storage2.count() == 1);
         assert(storage2.getSignals()[0].name == "Test TV Power Updated");
         assert(storage2.getSignals()[0].frequency_khz == 40);
+        assert(storage2.getSignals()[0].shellCommand == "amixer set Master 5%+");
 
         // 1. Exact pulse match
         auto updatedPulses = storage2.getSignals()[0].pulses;

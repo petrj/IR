@@ -6,7 +6,7 @@ Popup {
     modal: true
     focus: true
     width: 360
-    height: appController.captureReady ? (isNewRcdSelected ? 310 : 260) : 120
+    height: appController.captureReady ? (isNewRcdSelected ? 360 : 310) : 120
     closePolicy: Popup.NoAutoClose
     anchors.centerIn: parent
     visible: appController.captureInProgress || appController.captureReady
@@ -105,6 +105,13 @@ Popup {
             }
         }
 
+        TextField {
+            id: captureShellCmdField
+            width: parent.width
+            visible: appController.captureReady
+            placeholderText: "Shell Command (optional)"
+        }
+
         Row {
             spacing: 12
             anchors.horizontalCenter: parent.horizontalCenter
@@ -127,7 +134,7 @@ Popup {
                     if (sName.length === 0) {
                         sName = "Captured Signal";
                     }
-                    appController.saveCapturedSignal(rcd, sName);
+                    appController.saveCapturedSignal(rcd, sName, captureShellCmdField.text.trim());
                 }
             }
 

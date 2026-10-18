@@ -29,6 +29,9 @@ std::string SavedIrSignal::toJsonString() const {
     if (!rcdName.empty()) {
         j["rcdName"] = rcdName;
     }
+    if (!shellCommand.empty()) {
+        j["shellCommand"] = shellCommand;
+    }
     return j.dump(2);
 }
 
@@ -409,6 +412,9 @@ bool SignalStorage::saveToFile(const std::string& path) const {
             s["timestamp"] = sig.timestamp;
             s["rawHex"] = sig.rawHex;
             s["pulses"] = sig.pulses;
+            if (!sig.shellCommand.empty()) {
+                s["shellCommand"] = sig.shellCommand;
+            }
             sigsJson.push_back(std::move(s));
         }
 
@@ -428,6 +434,11 @@ static SavedIrSignal parseSignalJson(const nlohmann::json& s, const std::string&
     sig.timestamp = s.value("timestamp", "");
     sig.rawHex = s.value("rawHex", "N/A");
     sig.rcdName = s.value("rcdName", defaultRcd);
+    if (s.contains("shellCommand") && s["shellCommand"].is_string()) {
+        sig.shellCommand = s["shellCommand"].get<std::string>();
+    } else if (s.contains("shell_command") && s["shell_command"].is_string()) {
+        sig.shellCommand = s["shell_command"].get<std::string>();
+    }
     if (s.contains("pulses") && s["pulses"].is_array()) {
         sig.pulses = s["pulses"].get<std::vector<int>>();
     }

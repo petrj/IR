@@ -214,7 +214,57 @@ class RingBuffer;
   * `bool push(const T& item)` / `bool push(T&& item)` — Returns `false` if an older element was overwritten.
   * `bool pop(T& outItem)` — Pops oldest item; returns `false` if empty.
   * `std::optional<T> pop()` — Returns oldest item as `std::optional`.
-  * `void clear()`, `size_t size() const`, `constexpr size_t capacity() const`, `bool empty() const`, `bool full() const`.
+---
+
+### 4. `SignalStorage` & Remote Control Devices (RCD)
+
+Header: [`SignalStorage.h`](SignalStorage.h) | Source: [`SignalStorage.cpp`](SignalStorage.cpp)
+
+Manages local JSON persistence for recorded IR signals organized into **Remote Control Devices (RCD)**. Handles multi-format schema migrations, timing-tolerant pulse sequence matching, and shell command triggers.
+
+#### Data Models
+
+##### `SavedIrSignal`
+```cpp
+struct SavedIrSignal {
+    std::string name;                               // Friendly signal name (e.g. "TV Power")
+    std::string protocol{"Raw"};                    // "Raw" or "NEC"
+    uint8_t frequency_khz{38};                      // Modulation frequency (default: 38 kHz)
+    std::string timestamp;                          // Timestamp string
+    std::vector<int> pulses;                        // Microsecond pulse sequence (+mark, -space)
+    std::string rawHex;                             // Decoded 32-bit hex (e.g. "0xE718FF00") or "N/A"
+    std::string rcdName{"Default Remote Device"};   // Target Remote Control Device group
+    std::string shellCommand;                       // Optional shell command executed upon signal match
+
+    std::string toJsonString() const;
+};
+```
+
+##### `RemoteControlDevice` (RCD)
+```cpp
+struct RemoteControlDevice {
+    std::string name;                               // Device identifier (e.g. "Living Room TV")
+    std::vector<SavedIrSignal> savedSignals;        // Commands belonging to this device
+};
+
+using RCD = RemoteControlDevice;
+```
+
+#### Primary Methods
+
+| Method | Description |
+| :--- | :--- |
+| `static std::string getDefaultStoragePath()` | Computes platform storage path (`~/.config/IR/saved_ir_signals.json` on Linux, `%APPDATA%\IR\...` on Windows). |
+| `bool loadFromFile(const std::string& path = "")` | Loads JSON database; automatically migrates legacy flat signal lists into RCD format. |
+| `bool saveToFile(const std::string& path = "") const` | Persists all RCDs and their signals to the JSON storage file. |
+| `const std::vector<RemoteControlDevice>& getDevices() const` | Returns all Remote Control Devices. |
+| `bool addDevice(const std::string& name)` | Creates a new Remote Control Device group. |
+| `bool removeDevice(const std::string& name)` | Deletes a Remote Control Device and all associated signals. |
+| `bool renameDevice(const std::string& oldName, const std::string& newName)` | Renames an RCD and updates all contained signal entries. |
+| `void addSignal(const SavedIrSignal& signal, const std::string& rcdName = "")` | Saves a new signal under the target RCD. |
+| `bool updateSignal(size_t index, const SavedIrSignal& signal)` | Updates all properties of signal at flat `index` (Name, RCD, Protocol, Frequency, Hex, Pulses, Shell Command). |
+| `bool removeSignal(size_t index)` | Removes signal at `index`; automatically prunes RCD if it becomes empty. |
+| `std::optional<SavedIrSignal> findMatchingSignal(const IrSignal& signal) const` | Matches an incoming pulse train against stored signals using NEC decoded values and timing-tolerant pulse comparison (±25% tolerance). |
 
 ---
 

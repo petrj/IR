@@ -115,7 +115,7 @@ Window {
                     }
                     delegate: Rectangle {
                         width: signalList.width - 10
-                        height: 68
+                        height: (modelData.shellCommand && modelData.shellCommand.length > 0) ? 84 : 68
                         radius: 8
                         color: index % 2 === 0 ? "#071a2a" : "#061423"
                         border.color: "#1e293b"
@@ -172,6 +172,15 @@ Window {
                                 Text {
                                     text: modelData.timestamp || ""
                                     color: "#64748b"
+                                    font.pixelSize: 10
+                                    width: parent.width
+                                    elide: Text.ElideRight
+                                }
+
+                                Text {
+                                    visible: !!modelData.shellCommand && modelData.shellCommand.length > 0
+                                    text: "cmd: " + (modelData.shellCommand || "")
+                                    color: "#38bdf8"
                                     font.pixelSize: 10
                                     width: parent.width
                                     elide: Text.ElideRight

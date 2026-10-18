@@ -27,6 +27,8 @@ public:
     void transmitSavedSignal();
     void transmitManualSequence();
     bool transmitPulses(const std::vector<int>& pulses, uint8_t frequency_khz = 38, const std::string& name = "Custom Signal");
+    void editSavedSignal(size_t index);
+    void addSignalManually();
     void printHardwareInfo();
     void simulateCapture();
 
@@ -43,7 +45,7 @@ public:
 private:
     void printBanner() const;
     void printMenu();
-    void displaySignalDetails(const IrSignal& signal, const std::string& title = "CAPTURED IR SIGNAL", const std::string& identifiedName = "", const std::string& identifiedRcd = "");
+    void displaySignalDetails(const IrSignal& signal, const std::string& title = "CAPTURED IR SIGNAL", const std::string& identifiedName = "", const std::string& identifiedRcd = "", const std::string& identifiedShellCmd = "");
     void handleReceivedSignal(const IrSignal& sig, const std::string& title = "NEW IR SIGNAL CAPTURED", bool promptIfNew = true);
     std::string promptForRcd();
     std::unique_ptr<httplib::Client> createClient(int timeoutSeconds = 5) const;

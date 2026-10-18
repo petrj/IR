@@ -26,6 +26,12 @@ Each card displays:
 - pulse count
 - frequency (kHz)
 - timestamp
+- **Shell command**: highlighted in cyan (`cmd: <shellCommand>`) if configured for the signal
+
+Each card includes three action buttons:
+- **Edit (✎)**: Opens the edit dialog preloaded with all signal properties (name, RCD, protocol, frequency, rawHex, pulses, shell command) for in-place modification.
+- **Transmit (➤)**: Transmits the signal through the hardware API via `POST /api/v1/send`.
+- **Delete (🗑)**: Prompts for confirmation and calls `SignalStorage::removeSignal()` (automatically pruning the RCD if it was the last command).
 
 The toolbar includes:
 
@@ -35,19 +41,25 @@ The toolbar includes:
 - **Capture (📡)** button
 - **RCD Filter ComboBox**: Filter displayed signals by "All Devices" or a specific Remote Control Device.
 
-### Add Manual
-The manual-add popup allows the user to create a saved signal without hardware capture.
+### Add Manual & Edit Signal
+
+The popup (`ManualAddPopup.qml`) serves a dual role:
+1. **Add Manually**: Opened via the toolbar `+` button to create a new IR signal without hardware capture.
+2. **Edit Signal**: Opened via a card's `✎` button to modify any property of an existing saved signal in-place.
 
 Supported fields:
 
 - signal name
-- **Remote Control Device (RCD)**: Select an existing RCD from dropdown or choose `+ New Remote Device...` to type a new device name
+- **Remote Control Device (RCD)**: Select an existing RCD from the dropdown or choose `+ New Remote Device...` to type a new device name
 - protocol (`Raw` or `NEC`)
 - frequency in kHz
-- rawHex (optional)
-- comma-separated pulse values (optional)
+- rawHex (optional, e.g. `0x00FF45BA`)
+- comma-separated pulse values in microseconds (optional)
+- **Shell command** (optional, e.g. `amixer set Master 5%+`, `playerctl play-pause`, or any custom script)
 
-When saved, the entry is written to the local JSON file under the specified RCD.
+When saved:
+- In Add mode, `AppController::addSignalManually()` creates and appends the signal to the specified RCD.
+- In Edit mode, `AppController::updateSignal()` updates all properties in-place while preserving the signal's position and correctly managing RCD assignments.
 
 ### Capture via API
 The capture flow starts a REST `POST /api/v1/capture` request. While the request is active, the UI shows a capture popup and waits for a remote button press.
@@ -57,6 +69,7 @@ When a valid signal arrives:
 - the captured pulses are stored in memory and decoded if valid NEC
 - **RCD Specification**: The user must specify the Remote Control Device (select an existing RCD from the dropdown or select `+ Create New Remote Device...` to input a new RCD name)
 - the user specifies the signal name
+- **Shell Command**: optional input field to configure a shell command associated with this signal
 - clicking "Save Signal" commits the signal to the specified RCD in the local JSON storage
 
 ### Remove Saved Signal
@@ -87,10 +100,10 @@ Both the QML app and the TUI share the same JSON file and the same Remote Contro
 
 ### QML Files
 
-- `main.qml` — main window, signal list, RCD filter, action buttons
+- `main.qml` — main window, signal card list with inline edit/transmit/delete buttons, RCD filter, action toolbar
 - `TopBar.qml` — server and USB status indicators
-- `ManualAddPopup.qml` — manual save form with RCD selector
-- `CapturePopup.qml` — capture waiting and save/discard UX with existing/new RCD selector
+- `ManualAddPopup.qml` — dual-purpose modal for adding manual signals or editing all properties (including shell command) of existing signals
+- `CapturePopup.qml` — capture waiting, RCD selector, signal naming, and optional shell command configuration UX
 
 ### Controller Bridge
 
@@ -100,7 +113,9 @@ Both the QML app and the TUI share the same JSON file and the same Remote Contro
 - exposes `rcdList` (`QStringList`) of existing device names
 - exposes `selectedDeviceFilter` (`QString`) for filtering signals by device
 - refreshes the signal grid from `SignalStorage`
-- saves captured/manual signals to specified RCDs in the local JSON file
+- provides `getSignalDetails(index)` for pre-filling edit dialogues
+- updates existing signals via `updateSignal(...)`
+- saves captured signals (`saveCapturedSignal(...)`) and manual entries (`addSignalManually(...)`) with optional shell command parameters
 - deletes signals and prunes empty RCDs
 - transmits a saved signal through the hardware API
 

@@ -6,7 +6,7 @@ Popup {
     modal: true
     focus: true
     width: 440
-    height: 380
+    height: 440
     closePolicy: Popup.CloseOnEscape
     anchors.centerIn: parent
     background: Rectangle { color: "#0b1220"; radius: 8; border.color: "#1f2937" }
@@ -22,6 +22,7 @@ Popup {
         manualRawHex.text = "";
         manualPulses.text = "";
         manualNewRcd.text = "";
+        manualShellCommand.text = "";
         manualAddPopup.selectedProtocol = "Raw";
         editing = false;
         editingIndex = -1;
@@ -43,6 +44,7 @@ Popup {
         manualName.text = signal.name || "";
         manualFreq.text = signal.frequency || "38";
         manualRawHex.text = signal.rawHex || "";
+        manualShellCommand.text = signal.shellCommand || "";
         manualAddPopup.selectedProtocol = signal.protocol || "Raw";
 
         var rcdName = signal.rcdName || "Default Remote Device";
@@ -145,7 +147,8 @@ Popup {
         }
 
         TextArea { id: manualRawHex; placeholderText: "rawHex (optional)"; height: 36; width: parent.width }
-        TextArea { id: manualPulses; placeholderText: "Pulses (comma-separated microseconds)"; height: 64; width: parent.width }
+        TextArea { id: manualPulses; placeholderText: "Pulses (comma-separated microseconds)"; height: 56; width: parent.width }
+        TextField { id: manualShellCommand; placeholderText: "Shell Command (optional, e.g. amixer set Master 5%+)"; width: parent.width }
 
         Row {
             spacing: 12
@@ -177,10 +180,12 @@ Popup {
                         }
                     }
 
+                    var shellCmd = manualShellCommand.text.trim();
+
                     if (manualAddPopup.editing) {
-                        appController.updateSignal(manualAddPopup.editingIndex, manualName.text, proto, freq, raw, pulsesArr, chosenRcd);
+                        appController.updateSignal(manualAddPopup.editingIndex, manualName.text, proto, freq, raw, pulsesArr, chosenRcd, shellCmd);
                     } else {
-                        appController.addSignalManually(manualName.text, proto, freq, raw, pulsesArr, chosenRcd);
+                        appController.addSignalManually(manualName.text, proto, freq, raw, pulsesArr, chosenRcd, shellCmd);
                     }
                     manualAddPopup.close();
                 }

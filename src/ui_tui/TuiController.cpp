@@ -23,6 +23,13 @@ static void flushTerminalInput() {
 #endif
 }
 
+static std::string trimString(const std::string& str) {
+    size_t first = str.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos) return "";
+    size_t last = str.find_last_not_of(" \t\r\n");
+    return str.substr(first, last - first + 1);
+}
+
 static bool checkStdinHasInput() {
 #if defined(_WIN32)
     return _kbhit() != 0;
@@ -157,11 +164,12 @@ void TuiController::printMenu() {
     std::cout << "  5) Transmit (Send) IR Signal via HTTP API\n";
     std::cout << "  6) USB Hardware Information & Diagnostics (via API)\n";
     std::cout << "  7) Simulate IR Capture (Test without hardware)\n";
+    std::cout << "  8) Add Signal Manually (Create new signal)\n";
     std::cout << "  Q) Quit\n";
-    std::cout << "Select option (1-7, Q): " << std::flush;
+    std::cout << "Select option (1-8, Q): " << std::flush;
 }
 
-void TuiController::displaySignalDetails(const IrSignal& signal, const std::string& title, const std::string& identifiedName, const std::string& identifiedRcd) {
+void TuiController::displaySignalDetails(const IrSignal& signal, const std::string& title, const std::string& identifiedName, const std::string& identifiedRcd, const std::string& identifiedShellCmd) {
     std::cout << "\n+------------------------------------------------------\n";
     std::cout << "| " << title << "\n";
     std::cout << "+------------------------------------------------------\n";
@@ -170,6 +178,9 @@ void TuiController::displaySignalDetails(const IrSignal& signal, const std::stri
     }
     if (!identifiedName.empty()) {
         std::cout << "| Signal Name:   " << identifiedName << " [SAVED]\n";
+    }
+    if (!identifiedShellCmd.empty()) {
+        std::cout << "| Shell Command: " << identifiedShellCmd << "\n";
     }
     std::cout << "| Pulse Count:   " << signal.pulses.size() << "\n";
     std::cout << "| Frequency:     " << static_cast<int>(signal.frequency_khz) << " kHz\n";
@@ -230,9 +241,14 @@ void TuiController::handleReceivedSignal(const IrSignal& sig, const std::string&
     m_lastCaptured = sig;
     auto matched = m_storage.findMatchingSignal(sig);
     if (matched) {
-        displaySignalDetails(sig, title, matched->name, matched->rcdName);
+        displaySignalDetails(sig, title, matched->name, matched->rcdName, matched->shellCommand);
         std::cout << "[IDENTIFIED] Signal already in library: \"" << matched->name
                   << "\" on device \"" << matched->rcdName << "\" (" << matched->protocol << ")\n";
+        if (!matched->shellCommand.empty()) {
+            std::cout << "[EXEC] Executing shell command: " << matched->shellCommand << "\n";
+            int ret = std::system(matched->shellCommand.c_str());
+            (void)ret;
+        }
     } else {
         displaySignalDetails(sig, title, "");
         std::cout << "[INFO] Signal is not in saved library.\n";
@@ -257,12 +273,19 @@ void TuiController::handleReceivedSignal(const IrSignal& sig, const std::string&
 
             std::string rcdName = promptForRcd();
 
+            std::cout << "Enter shell command (optional, press Enter to skip): " << std::flush;
+            flushTerminalInput();
+            std::string shellCmd;
+            std::getline(std::cin, shellCmd);
+            shellCmd = trimString(shellCmd);
+
             SavedIrSignal saved;
             saved.name = name;
             saved.rcdName = rcdName;
             saved.frequency_khz = sig.frequency_khz;
             saved.pulses = sig.pulses;
             saved.timestamp = currentTimestamp();
+            saved.shellCommand = shellCmd;
 
             DecodedCode necCode;
             if (IrProtocol::decodeNec(saved.pulses, necCode)) {
@@ -426,12 +449,19 @@ void TuiController::saveLastCapturedSignal() {
 
     std::string rcdName = promptForRcd();
 
+    std::cout << "Enter shell command (optional, press Enter to skip): " << std::flush;
+    flushTerminalInput();
+    std::string shellCmd;
+    std::getline(std::cin, shellCmd);
+    shellCmd = trimString(shellCmd);
+
     SavedIrSignal saved;
     saved.name = name;
     saved.rcdName = rcdName;
     saved.frequency_khz = m_lastCaptured->frequency_khz;
     saved.pulses = m_lastCaptured->pulses;
     saved.timestamp = currentTimestamp();
+    saved.shellCommand = shellCmd;
 
     DecodedCode necCode;
     if (IrProtocol::decodeNec(saved.pulses, necCode)) {
@@ -476,25 +506,446 @@ void TuiController::listSavedSignals() {
                           << std::setw(8) << sig.pulses.size()
                           << std::setw(20) << sig.timestamp
                           << "\n";
+                if (!sig.shellCommand.empty()) {
+                    std::cout << "         └─ Shell: " << sig.shellCommand << "\n";
+                }
             }
         }
         std::cout << "===============================================================\n";
     }
 
-    std::cout << "Actions: (D # to delete, Enter to return): " << std::flush;
+    std::cout << "Actions: (E # to edit, D # to delete, A to add, Enter to return): " << std::flush;
     std::string act;
     std::getline(std::cin, act);
-    if (!act.empty() && (act[0] == 'd' || act[0] == 'D')) {
-        std::istringstream iss(act.substr(1));
-        size_t idx;
-        if (iss >> idx && idx >= 1 && idx <= m_storage.count()) {
+    act = trimString(act);
+    if (act.empty()) return;
+
+    char firstChar = std::toupper(act[0]);
+    if (firstChar == 'D') {
+        std::string numPart = trimString(act.substr(1));
+        size_t idx = 0;
+        if (!numPart.empty()) {
+            try { idx = std::stoul(numPart); } catch (...) {}
+        } else {
+            std::cout << "Enter signal number to delete (1-" << m_storage.count() << "): " << std::flush;
+            std::string inNum;
+            std::getline(std::cin, inNum);
+            try { idx = std::stoul(trimString(inNum)); } catch (...) {}
+        }
+        if (idx >= 1 && idx <= m_storage.count()) {
             auto sigOpt = m_storage.getSignal(idx - 1);
             std::string delName = sigOpt ? sigOpt->name : "Signal";
             std::string delRcd = sigOpt ? sigOpt->rcdName : "";
             m_storage.removeSignal(idx - 1);
             std::cout << "[INFO] Removed '" << delName << "' (" << delRcd << ") from local storage.\n";
+        } else {
+            std::cout << "[ERROR] Invalid signal number.\n";
+        }
+    } else if (firstChar == 'E') {
+        std::string numPart = trimString(act.substr(1));
+        size_t idx = 0;
+        if (!numPart.empty()) {
+            try { idx = std::stoul(numPart); } catch (...) {}
+        } else {
+            std::cout << "Enter signal number to edit (1-" << m_storage.count() << "): " << std::flush;
+            std::string inNum;
+            std::getline(std::cin, inNum);
+            try { idx = std::stoul(trimString(inNum)); } catch (...) {}
+        }
+        if (idx >= 1 && idx <= m_storage.count()) {
+            editSavedSignal(idx - 1);
+        } else {
+            std::cout << "[ERROR] Invalid signal number.\n";
+        }
+    } else if (firstChar == 'A') {
+        addSignalManually();
+    }
+}
+
+void TuiController::editSavedSignal(size_t index) {
+    if (index >= m_storage.count()) {
+        std::cout << "[ERROR] Invalid signal index: " << (index + 1) << ".\n";
+        return;
+    }
+
+    auto sigOpt = m_storage.getSignal(index);
+    if (!sigOpt) {
+        std::cout << "[ERROR] Signal not found at index " << (index + 1) << ".\n";
+        return;
+    }
+
+    SavedIrSignal current = *sigOpt;
+
+    while (true) {
+        std::cout << "\n=======================================================\n";
+        std::cout << " EDIT SIGNAL #" << (index + 1) << ": \"" << current.name << "\"\n";
+        std::cout << "=======================================================\n";
+        std::cout << "  1) Name:          " << current.name << "\n";
+        std::cout << "  2) Remote Device: " << current.rcdName << "\n";
+        std::cout << "  3) Protocol:      " << current.protocol << "\n";
+        std::cout << "  4) Frequency:     " << static_cast<int>(current.frequency_khz) << " kHz\n";
+        std::cout << "  5) Raw Hex:       " << current.rawHex << "\n";
+        std::cout << "  6) Pulses:        " << current.pulses.size() << " pulses";
+        if (!current.pulses.empty()) {
+            std::cout << " [";
+            for (size_t p = 0; p < std::min<size_t>(current.pulses.size(), 6); ++p) {
+                if (p > 0) std::cout << ", ";
+                std::cout << current.pulses[p];
+            }
+            if (current.pulses.size() > 6) std::cout << ", ...";
+            std::cout << "]";
+        }
+        std::cout << "\n";
+        std::cout << "  7) Shell Command: " << (current.shellCommand.empty() ? "(none)" : current.shellCommand) << "\n";
+        std::cout << "-------------------------------------------------------\n";
+        std::cout << "Select property (1-7), 'A' to edit all sequentially,\n";
+        std::cout << "'S' to Save changes, 'C' to Cancel: " << std::flush;
+
+        flushTerminalInput();
+        std::string choice;
+        if (!std::getline(std::cin, choice)) break;
+        choice = trimString(choice);
+        if (choice.empty()) continue;
+
+        char c = std::toupper(choice[0]);
+        if (c == 'C') {
+            std::cout << "[INFO] Edit cancelled. No changes saved.\n";
+            return;
+        } else if (c == 'S') {
+            if (current.name.empty()) {
+                std::cout << "[ERROR] Signal name cannot be empty.\n";
+                continue;
+            }
+            if (current.pulses.empty() && (current.rawHex.empty() || current.rawHex == "N/A")) {
+                std::cout << "[ERROR] Signal must have pulses or a valid rawHex.\n";
+                continue;
+            }
+            if (m_storage.updateSignal(index, current)) {
+                std::cout << "[SUCCESS] Updated signal \"" << current.name << "\" in storage!\n";
+            } else {
+                std::cout << "[ERROR] Failed to update signal in storage.\n";
+            }
+            return;
+        } else if (c == 'A') {
+            // Edit all properties sequentially
+            std::cout << "Enter Name [" << current.name << "]: " << std::flush;
+            std::string val;
+            std::getline(std::cin, val);
+            val = trimString(val);
+            if (!val.empty()) current.name = val;
+
+            std::cout << "Enter Remote Device [" << current.rcdName << "]: " << std::flush;
+            std::getline(std::cin, val);
+            val = trimString(val);
+            if (!val.empty()) current.rcdName = val;
+
+            std::cout << "Enter Protocol (Raw/NEC) [" << current.protocol << "]: " << std::flush;
+            std::getline(std::cin, val);
+            val = trimString(val);
+            if (val == "2" || val == "nec" || val == "NEC") current.protocol = "NEC";
+            else if (!val.empty()) current.protocol = "Raw";
+
+            std::cout << "Enter Frequency in kHz [" << static_cast<int>(current.frequency_khz) << "]: " << std::flush;
+            std::getline(std::cin, val);
+            val = trimString(val);
+            if (!val.empty()) {
+                try {
+                    int f = std::stoi(val);
+                    if (f > 0 && f <= 100) current.frequency_khz = static_cast<uint8_t>(f);
+                } catch (...) {}
+            }
+
+            std::cout << "Enter Raw Hex [" << current.rawHex << "] (or '-' to clear): " << std::flush;
+            std::getline(std::cin, val);
+            val = trimString(val);
+            if (val == "-") {
+                current.rawHex = "N/A";
+            } else if (!val.empty()) {
+                current.rawHex = val;
+                if (current.protocol == "NEC" && current.pulses.empty()) {
+                    try {
+                        uint32_t rawVal = static_cast<uint32_t>(std::stoul(current.rawHex, nullptr, 0));
+                        current.pulses.clear();
+                        current.pulses.push_back(9000);
+                        current.pulses.push_back(-4500);
+                        for (int i = 0; i < 32; ++i) {
+                            current.pulses.push_back(560);
+                            current.pulses.push_back(((rawVal >> i) & 1) ? -1690 : -560);
+                        }
+                        current.pulses.push_back(560);
+                        current.pulses.push_back(-40000);
+                    } catch (...) {}
+                }
+            }
+
+            std::cout << "Enter Pulses (comma-separated microseconds, or Enter to keep " << current.pulses.size() << " pulses): " << std::flush;
+            std::getline(std::cin, val);
+            val = trimString(val);
+            if (!val.empty()) {
+                auto newPulses = IrProtocol::parsePulseSequence(val);
+                if (!newPulses.empty()) {
+                    current.pulses = newPulses;
+                    DecodedCode necCode;
+                    if (IrProtocol::decodeNec(current.pulses, necCode)) {
+                        current.protocol = "NEC";
+                        std::ostringstream ss;
+                        ss << "0x" << std::hex << std::uppercase << std::setw(8) << std::setfill('0') << necCode.rawValue;
+                        current.rawHex = ss.str();
+                    }
+                } else {
+                    std::cout << "[WARN] Invalid pulse format. Keeping previous pulses.\n";
+                }
+            }
+
+            std::cout << "Enter Shell Command [" << (current.shellCommand.empty() ? "none" : current.shellCommand) << "] (or '-' to clear): " << std::flush;
+            std::getline(std::cin, val);
+            val = trimString(val);
+            if (val == "-") {
+                current.shellCommand.clear();
+            } else if (!val.empty()) {
+                current.shellCommand = val;
+            }
+
+            std::cout << "[INFO] All properties updated. Type 'S' to save or edit individual properties.\n";
+        } else if (c == '1') {
+            std::cout << "Enter Name [" << current.name << "]: " << std::flush;
+            std::string val;
+            std::getline(std::cin, val);
+            val = trimString(val);
+            if (!val.empty()) current.name = val;
+        } else if (c == '2') {
+            std::cout << "Enter Remote Device [" << current.rcdName << "]: " << std::flush;
+            std::string val;
+            std::getline(std::cin, val);
+            val = trimString(val);
+            if (!val.empty()) current.rcdName = val;
+        } else if (c == '3') {
+            std::cout << "Enter Protocol (Raw/NEC) [" << current.protocol << "]: " << std::flush;
+            std::string val;
+            std::getline(std::cin, val);
+            val = trimString(val);
+            if (val == "2" || val == "nec" || val == "NEC") current.protocol = "NEC";
+            else if (!val.empty()) current.protocol = "Raw";
+        } else if (c == '4') {
+            std::cout << "Enter Frequency in kHz [" << static_cast<int>(current.frequency_khz) << "]: " << std::flush;
+            std::string val;
+            std::getline(std::cin, val);
+            val = trimString(val);
+            if (!val.empty()) {
+                try {
+                    int f = std::stoi(val);
+                    if (f > 0 && f <= 100) current.frequency_khz = static_cast<uint8_t>(f);
+                } catch (...) {}
+            }
+        } else if (c == '5') {
+            std::cout << "Enter Raw Hex [" << current.rawHex << "] (or '-' to clear): " << std::flush;
+            std::string val;
+            std::getline(std::cin, val);
+            val = trimString(val);
+            if (val == "-") {
+                current.rawHex = "N/A";
+            } else if (!val.empty()) {
+                current.rawHex = val;
+                if (current.protocol == "NEC" && current.pulses.empty()) {
+                    try {
+                        uint32_t rawVal = static_cast<uint32_t>(std::stoul(current.rawHex, nullptr, 0));
+                        current.pulses.clear();
+                        current.pulses.push_back(9000);
+                        current.pulses.push_back(-4500);
+                        for (int i = 0; i < 32; ++i) {
+                            current.pulses.push_back(560);
+                            current.pulses.push_back(((rawVal >> i) & 1) ? -1690 : -560);
+                        }
+                        current.pulses.push_back(560);
+                        current.pulses.push_back(-40000);
+                    } catch (...) {}
+                }
+            }
+        } else if (c == '6') {
+            std::cout << "Current pulses (" << current.pulses.size() << "):\n";
+            std::cout << IrProtocol::formatPulseSequence(current.pulses) << "\n";
+            std::cout << "Enter new pulses (comma-separated microseconds, or Enter to keep): " << std::flush;
+            std::string val;
+            std::getline(std::cin, val);
+            val = trimString(val);
+            if (!val.empty()) {
+                auto newPulses = IrProtocol::parsePulseSequence(val);
+                if (!newPulses.empty()) {
+                    current.pulses = newPulses;
+                    DecodedCode necCode;
+                    if (IrProtocol::decodeNec(current.pulses, necCode)) {
+                        current.protocol = "NEC";
+                        std::ostringstream ss;
+                        ss << "0x" << std::hex << std::uppercase << std::setw(8) << std::setfill('0') << necCode.rawValue;
+                        current.rawHex = ss.str();
+                    }
+                } else {
+                    std::cout << "[ERROR] Could not parse pulses.\n";
+                }
+            }
+        } else if (c == '7') {
+            std::cout << "Enter Shell Command [" << (current.shellCommand.empty() ? "none" : current.shellCommand) << "] (or '-' to clear): " << std::flush;
+            std::string val;
+            std::getline(std::cin, val);
+            val = trimString(val);
+            if (val == "-") {
+                current.shellCommand.clear();
+            } else if (!val.empty()) {
+                current.shellCommand = val;
+            }
         }
     }
+}
+
+void TuiController::addSignalManually() {
+    std::cout << "\n=======================================================\n";
+    std::cout << "               ADD NEW IR SIGNAL MANUALLY              \n";
+    std::cout << "=======================================================\n";
+
+    // 1. Name
+    std::cout << "Enter Signal Name (e.g. TV Power, Fan Speed): " << std::flush;
+    flushTerminalInput();
+    std::string name;
+    std::getline(std::cin, name);
+    name = trimString(name);
+    if (name.empty()) {
+        std::cout << "[ERROR] Signal name cannot be empty. Operation cancelled.\n";
+        return;
+    }
+
+    // 2. RCD
+    std::string rcdName = promptForRcd();
+
+    // 3. Protocol
+    std::cout << "\nSelect Protocol:\n";
+    std::cout << "  1) Raw Pulse Sequence\n";
+    std::cout << "  2) NEC Protocol\n";
+    std::cout << "Select protocol (1-2, default 1): " << std::flush;
+    flushTerminalInput();
+    std::string protoChoice;
+    std::getline(std::cin, protoChoice);
+    protoChoice = trimString(protoChoice);
+
+    std::string protocol = "Raw";
+    if (protoChoice == "2" || protoChoice == "nec" || protoChoice == "NEC") {
+        protocol = "NEC";
+    }
+
+    // 4. Frequency
+    std::cout << "Enter Carrier Frequency in kHz [38]: " << std::flush;
+    flushTerminalInput();
+    std::string freqStr;
+    std::getline(std::cin, freqStr);
+    freqStr = trimString(freqStr);
+    uint8_t freq = 38;
+    if (!freqStr.empty()) {
+        try {
+            int f = std::stoi(freqStr);
+            if (f > 0 && f <= 100) freq = static_cast<uint8_t>(f);
+        } catch (...) {}
+    }
+
+    // 5. Signal Data (pulses & rawHex)
+    std::vector<int> pulses;
+    std::string rawHex = "N/A";
+
+    if (protocol == "NEC") {
+        std::cout << "\nNEC Signal Input Options:\n";
+        std::cout << "  1) 32-bit Hex Code (e.g. 0xE718FF00)\n";
+        std::cout << "  2) Address & Command (e.g. Addr 0x00, Cmd 0x18)\n";
+        std::cout << "  3) Raw Microsecond Pulses (68 pulses)\n";
+        std::cout << "Select input method (1-3, default 1): " << std::flush;
+        flushTerminalInput();
+        std::string necInputMode;
+        std::getline(std::cin, necInputMode);
+        necInputMode = trimString(necInputMode);
+
+        if (necInputMode == "2") {
+            std::cout << "Enter Address in hex or dec (e.g. 0x00 or 0): " << std::flush;
+            std::string addrStr;
+            std::getline(std::cin, addrStr);
+            std::cout << "Enter Command in hex or dec (e.g. 0x18 or 24): " << std::flush;
+            std::string cmdStr;
+            std::getline(std::cin, cmdStr);
+            uint32_t addr = 0, cmd = 0;
+            try {
+                addr = std::stoul(addrStr, nullptr, 0);
+                cmd = std::stoul(cmdStr, nullptr, 0);
+            } catch (...) {}
+            pulses = IrProtocol::encodeNec(addr, cmd);
+            DecodedCode dec;
+            if (IrProtocol::decodeNec(pulses, dec)) {
+                std::ostringstream ss;
+                ss << "0x" << std::hex << std::uppercase << std::setw(8) << std::setfill('0') << dec.rawValue;
+                rawHex = ss.str();
+            }
+        } else if (necInputMode == "3") {
+            std::cout << "Enter pulses (comma-separated, e.g. 9000, -4500, 560, -560...): " << std::flush;
+            std::string pStr;
+            std::getline(std::cin, pStr);
+            pulses = IrProtocol::parsePulseSequence(pStr);
+            DecodedCode dec;
+            if (IrProtocol::decodeNec(pulses, dec)) {
+                std::ostringstream ss;
+                ss << "0x" << std::hex << std::uppercase << std::setw(8) << std::setfill('0') << dec.rawValue;
+                rawHex = ss.str();
+            }
+        } else {
+            std::cout << "Enter 32-bit NEC Hex Code (e.g. 0xE718FF00): " << std::flush;
+            std::string hexStr;
+            std::getline(std::cin, hexStr);
+            hexStr = trimString(hexStr);
+            if (!hexStr.empty()) {
+                rawHex = hexStr;
+                try {
+                    uint32_t rawVal = static_cast<uint32_t>(std::stoul(hexStr, nullptr, 0));
+                    pulses.reserve(68);
+                    pulses.push_back(9000);
+                    pulses.push_back(-4500);
+                    for (int i = 0; i < 32; ++i) {
+                        pulses.push_back(560);
+                        pulses.push_back(((rawVal >> i) & 1) ? -1690 : -560);
+                    }
+                    pulses.push_back(560);
+                    pulses.push_back(-40000);
+                } catch (...) {
+                    std::cout << "[ERROR] Invalid hex value.\n";
+                }
+            }
+        }
+    } else {
+        std::cout << "Enter pulse sequence (comma-separated microseconds, e.g. 9000, -4500, 560, -560...): " << std::flush;
+        flushTerminalInput();
+        std::string pStr;
+        std::getline(std::cin, pStr);
+        pulses = IrProtocol::parsePulseSequence(pStr);
+    }
+
+    if (pulses.empty() && rawHex == "N/A") {
+        std::cout << "[ERROR] Signal must have pulses or a valid hex code. Signal creation cancelled.\n";
+        return;
+    }
+
+    // 6. Shell Command
+    std::cout << "Enter shell command to associate with signal (optional, press Enter to skip): " << std::flush;
+    flushTerminalInput();
+    std::string shellCmd;
+    std::getline(std::cin, shellCmd);
+    shellCmd = trimString(shellCmd);
+
+    SavedIrSignal saved;
+    saved.name = name;
+    saved.rcdName = rcdName;
+    saved.protocol = protocol;
+    saved.frequency_khz = freq;
+    saved.rawHex = rawHex;
+    saved.pulses = pulses;
+    saved.timestamp = currentTimestamp();
+    saved.shellCommand = shellCmd;
+
+    m_storage.addSignal(saved, rcdName);
+    std::cout << "[SUCCESS] Created and saved new signal \"" << name
+              << "\" in RCD \"" << rcdName << "\" (" << pulses.size() << " pulses)!\n";
 }
 
 void TuiController::transmitSavedSignal() {
@@ -790,12 +1241,15 @@ void TuiController::runInteractiveLoop() {
             case '7':
                 simulateCapture();
                 break;
+            case '8':
+                addSignalManually();
+                break;
             case 'Q':
                 std::cout << "Exiting console test tool. Goodbye!\n";
                 running = false;
                 break;
             default:
-                std::cout << "[ERROR] Unknown option: '" << choice << "'. Please select 1-7 or Q.\n";
+                std::cout << "[ERROR] Unknown option: '" << choice << "'. Please select 1-8 or Q.\n";
                 break;
         }
     }

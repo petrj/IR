@@ -150,6 +150,7 @@ void AppController::refreshSignals()
         entry["frequency"] = static_cast<int>(signal.frequency_khz);
         entry["timestamp"] = QString::fromStdString(signal.timestamp);
         entry["pulseCount"] = static_cast<int>(signal.pulses.size());
+        entry["shellCommand"] = QString::fromStdString(signal.shellCommand);
         m_signals.append(entry);
     }
     emit savedSignalsChanged();
@@ -362,6 +363,7 @@ QVariantMap AppController::getSignalDetails(int index) const
     details["frequency"] = static_cast<int>(signal.frequency_khz);
     details["timestamp"] = QString::fromStdString(signal.timestamp);
     details["rawHex"] = QString::fromStdString(signal.rawHex);
+    details["shellCommand"] = QString::fromStdString(signal.shellCommand);
 
     QVariantList pulses;
     for (const int pulse : signal.pulses) {
@@ -371,7 +373,7 @@ QVariantMap AppController::getSignalDetails(int index) const
     return details;
 }
 
-void AppController::updateSignal(int index, const QString &name, const QString &protocol, int frequency, const QString &rawHex, const QVariantList &pulses, const QString &rcdName)
+void AppController::updateSignal(int index, const QString &name, const QString &protocol, int frequency, const QString &rawHex, const QVariantList &pulses, const QString &rcdName, const QString &shellCommand)
 {
     if (index < 0 || static_cast<size_t>(index) >= m_storage.count()) {
         m_status = "Invalid saved signal index";
@@ -407,6 +409,7 @@ void AppController::updateSignal(int index, const QString &name, const QString &
     updated.frequency_khz = static_cast<uint8_t>(frequency <= 0 ? 38 : frequency);
     updated.timestamp = QDateTime::currentDateTimeUtc().toString("yyyy-MM-dd HH:mm:ss").toStdString();
     updated.rawHex = rawHex.trimmed().isEmpty() ? "N/A" : rawHex.trimmed().toStdString();
+    updated.shellCommand = shellCommand.trimmed().toStdString();
     updated.pulses.clear();
     for (const QVariant &v : pulses) {
         bool ok = false;
@@ -504,7 +507,7 @@ void AppController::startCapture()
     });
 }
 
-void AppController::saveCapturedSignal(const QString &rcdName, const QString &signalName)
+void AppController::saveCapturedSignal(const QString &rcdName, const QString &signalName, const QString &shellCommand)
 {
     if (m_capturedPulses.isEmpty()) {
         m_captureReady = false;
@@ -534,6 +537,7 @@ void AppController::saveCapturedSignal(const QString &rcdName, const QString &si
     saved.frequency_khz = static_cast<uint8_t>(m_capturedFrequency);
     saved.timestamp = QDateTime::currentDateTimeUtc().toString("yyyy-MM-dd HH:mm:ss").toStdString();
     saved.rawHex = "N/A";
+    saved.shellCommand = shellCommand.trimmed().toStdString();
     saved.pulses.assign(m_capturedPulses.begin(), m_capturedPulses.end());
 
     ir::DecodedCode necCode;
@@ -565,7 +569,7 @@ void AppController::cancelCapture()
     emit captureInProgressChanged();
 }
 
-void AppController::addSignalManually(const QString &name, const QString &protocol, int frequency, const QString &rawHex, const QVariantList &pulses, const QString &rcdName)
+void AppController::addSignalManually(const QString &name, const QString &protocol, int frequency, const QString &rawHex, const QVariantList &pulses, const QString &rcdName, const QString &shellCommand)
 {
     if (name.trimmed().isEmpty()) {
         m_status = "Manual signal name is required";
@@ -588,6 +592,7 @@ void AppController::addSignalManually(const QString &name, const QString &protoc
     signal.frequency_khz = static_cast<uint8_t>(frequency <= 0 ? 38 : frequency);
     signal.timestamp = QDateTime::currentDateTimeUtc().toString("yyyy-MM-dd HH:mm:ss").toStdString();
     signal.rawHex = rawHex.trimmed().isEmpty() ? "N/A" : rawHex.trimmed().toStdString();
+    signal.shellCommand = shellCommand.trimmed().toStdString();
 
     if (!pulses.isEmpty()) {
         signal.pulses.clear();

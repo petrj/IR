@@ -47,9 +47,9 @@ The system architecture decouples the frontends from the hardware drivers via an
 * **Direct Hardware Access:** Ultra-low latency USB communication via native C++ `libusb-1.0`.
 * **Dual Frontend Architecture:**
   * **QML / Qt Quick UI:** Modern graphical interface optimized for desktop and mobile touchscreens, interacting with the transceiver via the Embedded REST HTTP API.
-  * **Terminal Console Test Tool (`ir_tui_test`):** Full-featured interactive console dashboard and CLI tool communicating over the HTTP REST API (`http://127.0.0.1:8080`) for rapid hardware debugging, protocol inspection, single capture, continuous polling, and transmission.
+  * **Terminal Console Tool (`ir_tui`):** Full-featured interactive console dashboard and CLI tool communicating over the HTTP REST API (`http://127.0.0.1:8080`) for rapid hardware debugging, protocol inspection, single capture, continuous polling, transmission, signal property editing, and manual signal creation.
 * **Embedded REST HTTP API:** Trigger IR transmissions, capture pulses, or monitor hardware status remotely via standard HTTP endpoints ([Documentation](src/api/README.md)).
-* **Local JSON Signal Database:** The TUI and QML apps use `SignalStorage` directly with a platform-appropriate app-data file, instead of exposing signal CRUD over the REST API.
+* **Local JSON Signal Database & Automation:** The TUI and QML apps manage a local JSON database organized by Remote Control Devices (RCD), supporting pulse sequences, carrier frequency, protocol identification, and optional shell command execution triggers when signals are matched.
 * **Asynchronous Driver Execution:** USB polling runs on dedicated worker threads (`QThread` / `std::thread`), keeping all UI interaction smooth and non-blocking.
 
 ---
@@ -59,7 +59,7 @@ The system architecture decouples the frontends from the hardware drivers via an
 ```
 IR-QtApp/
 ├── CMakeLists.txt                # Root build configuration
-├── project_readme.md             # Project documentation
+├── README.md                     # Project documentation
 ├── saved_ir_signals.json         # Local fallback for the app's JSON signal database
 ├── src/
 │   ├── core/                     # Shared static library (ir_core)
@@ -68,7 +68,9 @@ IR-QtApp/
 │   │   ├── IrUsbTransceiver.h
 │   │   ├── IrProtocol.cpp        # Protocol encoding/decoding implementation
 │   │   ├── IrProtocol.h          # Signal encoding/decoding definitions
-│   │   └── RingBuffer.h          # Thread-safe buffer for raw IR pulses
+│   │   ├── RingBuffer.h          # Thread-safe buffer for raw IR pulses
+│   │   ├── SignalStorage.cpp     # JSON persistence for signals & Remote Control Devices
+│   │   └── SignalStorage.h
 │   ├── api/                      # Embedded Web API (ir_api)
 │   │   ├── README.md             # REST API reference and client examples
 │   │   ├── HttpServerModule.cpp  # REST HTTP endpoints
@@ -78,13 +80,14 @@ IR-QtApp/
 │   │   ├── main.cpp              # QML entry point
 │   │   ├── AppController.cpp     # QObject bridge for QML
 │   │   ├── AppController.h
-│   │   └── main.qml              # Declarative UI layout
+│   │   ├── main.qml              # Declarative UI layout
+│   │   ├── ManualAddPopup.qml    # Manual signal addition and editing popup
+│   │   ├── CapturePopup.qml      # Signal capture and save popup
+│   │   └── TopBar.qml            # Status and connection header
 │   └── ui_tui/                   # Terminal GUI Test Tool (HTTP API Consumer)
 │       ├── main_tui.cpp          # Console entry point & CLI parser
-│       ├── TuiController.cpp     # HTTP API-driven console controller
-│       ├── TuiController.h
-│       ├── SignalStorage.cpp     # JSON persistence for local saved signals
-│       └── SignalStorage.h
+│       ├── TuiController.cpp     # Interactive console controller & editor
+│       └── TuiController.h
 ├── tests/                        # Automated unit & integration tests
 │   ├── CMakeLists.txt            # Test configuration (test_all target)
 │   └── test_all.cpp              # Unified test suite (IR Core + REST API)
@@ -226,6 +229,21 @@ The `ir_tui` executable provides an interactive console menu and CLI commands th
 # 6. Display hardware diagnostics and connection status via API
 ./build/debug/ir_tui --info
 ```
+
+### Interactive Menu Features
+
+When run interactively (`./build/debug/ir_tui`), the console dashboard provides:
+* **1) Capture IR Signal:** Single-shot capture with prompt to assign a friendly name, Remote Control Device (RCD), and optional shell command.
+* **2) Continuous Monitor Mode:** Real-time polling stream. Automatically identifies known signals and **executes associated shell commands** when recognized.
+* **3) Save Last Captured Signal:** Commit the last captured signal to local JSON storage.
+* **4) List & Manage Saved Signals:** Full signal overview grouped by Remote Control Device. Supports interactive actions:
+  * `E #` — **Edit all properties** of signal `#` (Name, RCD, Protocol, Frequency, Raw Hex, Pulses, Shell Command).
+  * `D #` — **Delete** signal `#` (automatically prunes empty RCDs).
+  * `A` — **Add** a new signal manually.
+* **5) Transmit IR Signal:** Transmit saved signals, presets, or custom pulse arrays through the API.
+* **6) Hardware Diagnostics:** View USB transceiver descriptors, firmware version, and server health.
+* **7) Simulate IR Capture:** Synthesize NEC signals to verify decoding, matching, and shell command triggers without hardware.
+* **8) Add Signal Manually:** Guided wizard to manually create and store a signal with custom pulse sequences or NEC hex codes and an optional shell command.
 
 > [!TIP]
 > You can also configure the target API server URL using the `IR_API_URL` environment variable:

@@ -162,6 +162,7 @@ nlohmann::json HttpServerModule::signalToJson(const IrSignal& sig, const SignalS
         if (match) {
             out["matchedSavedSignal"] = match->name;
             out["matchedRcdName"] = match->rcdName;
+            out["matchedShellCommand"] = match->shellCommand;
         }
     }
 
@@ -630,7 +631,8 @@ void HttpServerModule::handleGetSignals(const httplib::Request&, httplib::Respon
             {"frequency", static_cast<int>(s.frequency_khz)},
             {"timestamp", s.timestamp},
             {"rawHex", s.rawHex},
-            {"pulseCount", s.pulses.size()}
+            {"pulseCount", s.pulses.size()},
+            {"shellCommand", s.shellCommand}
         };
         list.push_back(item);
     }
@@ -673,7 +675,8 @@ void HttpServerModule::handleGetSignalByIndex(const httplib::Request& req, httpl
         {"timestamp", s.timestamp},
         {"rawHex", s.rawHex},
         {"pulseCount", s.pulses.size()},
-        {"pulses", s.pulses}
+        {"pulses", s.pulses},
+        {"shellCommand", s.shellCommand}
     };
     res.status = 200;
     res.set_content(out.dump(2), "application/json");
@@ -705,6 +708,7 @@ void HttpServerModule::handlePostSignals(const httplib::Request& req, httplib::R
     sig.protocol = j.value("protocol", "Raw");
     sig.frequency_khz = static_cast<uint8_t>(j.value("frequency", 38));
     sig.rawHex = j.value("rawHex", "N/A");
+    sig.shellCommand = j.value("shellCommand", j.value("shell_command", ""));
 
     if (j.contains("timestamp") && j["timestamp"].is_string()) {
         sig.timestamp = j["timestamp"].get<std::string>();

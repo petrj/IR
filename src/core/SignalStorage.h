@@ -15,6 +15,7 @@ struct SavedIrSignal {
     std::vector<int> pulses;
     std::string rawHex;
     std::string rcdName{"Default Remote Device"};
+    std::string shellCommand;
 
     std::string toJsonString() const;
 };

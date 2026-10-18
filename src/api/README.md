@@ -239,7 +239,9 @@ Pops the oldest received signal from the internal thread-safe `RingBuffer`.
       "command": "0x18",
       "isRepeat": false
     },
-    "matchedSavedSignal": "TV Power"
+    "matchedSavedSignal": "TV Power",
+    "matchedRcdName": "Living Room TV",
+    "matchedShellCommand": "playerctl play-pause"
   }
 }
 ```
@@ -280,7 +282,9 @@ Blocks the request until the user presses a remote control button or the specifi
       "address": "0x00",
       "command": "0x18"
     },
-    "matchedSavedSignal": "TV Volume Up"
+    "matchedSavedSignal": "TV Volume Up",
+    "matchedRcdName": "Living Room TV",
+    "matchedShellCommand": "pactl set-sink-volume @DEFAULT_SINK@ +5%"
   }
 }
 ```
@@ -321,7 +325,7 @@ Signals are organized into **Remote Control Devices (RCD)**:
 * Each signal belongs to exactly one RCD.
 * Each RCD has a unique `name` and contains $1 \dots n$ signals.
 * Legacy files containing a flat array of signals automatically migrate to an RCD named `"Default Remote Device"`.
-* When signals are matched during receive or capture operations (`signalToJson`), the response includes both `"matchedSavedSignal"` and `"matchedRcdName"`.
+* When signals are matched during receive or capture operations (`signalToJson`), the response includes `"matchedSavedSignal"`, `"matchedRcdName"`, and `"matchedShellCommand"` (the optional shell command string configured for automated execution upon recognition).
 
 On Linux, the default storage location is typically:
 
@@ -462,7 +466,9 @@ def capture_button(timeout=10.0):
         if "decoded" in sig:
             print(f"[+] Decoded NEC: {sig['decoded']}")
         if "matchedSavedSignal" in sig:
-            print(f"[+] Recognized Button: '{sig['matchedSavedSignal']}'")
+            print(f"[+] Recognized Button: '{sig['matchedSavedSignal']}' (Device: '{sig.get('matchedRcdName')}')")
+            if sig.get("matchedShellCommand"):
+                print(f"[+] Associated Command: '{sig['matchedShellCommand']}'")
     else:
         print(f"[-] Capture failed: {resp.text}")
 

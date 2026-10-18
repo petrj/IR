@@ -22,6 +22,7 @@ public:
     // Mode operations
     bool captureOnce(float timeoutSeconds = 10.0f);
     void startContinuousMonitor();
+    void startTriggerMode();
     void saveLastCapturedSignal();
     void listSavedSignals();
     void transmitSavedSignal();

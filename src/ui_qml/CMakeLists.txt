@@ -33,5 +33,6 @@ if (TARGET ir_gui)
             TopBar.qml
             ManualAddPopup.qml
             CapturePopup.qml
+            TriggerPopup.qml
     )
 endif()

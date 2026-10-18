@@ -341,6 +341,8 @@ On Windows, the default storage location is typically:
 
 The `ir_api_server` process instantiates the class internally for signal matching, device identification, and metadata enrichment, while keeping the network surface hardware-centric.
 
+Both the Terminal Console Tool (`ir_tui`) and Graphical User Interface (`ir_gui`) utilize this to implement **Trigger Mode**, polling `/api/v1/capture` and automatically executing matched shell commands in an ongoing loop.
+
 ---
 
 ## 🚦 Status & Error Codes

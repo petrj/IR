@@ -11,6 +11,7 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QProcess>
+#include <QTime>
 #include <QTimer>
 #include <QUrl>
 
@@ -155,6 +156,9 @@ void AppController::refreshSignals()
     }
     emit savedSignalsChanged();
     emit rcdListChanged();
+    emit armedSignalsChanged();
+    m_armedTriggerCount = armedSignals().size();
+    emit armedTriggerCountChanged();
     if (m_signals.isEmpty()) {
         m_status = "No saved signals";
         emit statusChanged();
@@ -438,6 +442,10 @@ void AppController::updateSignal(int index, const QString &name, const QString &
 
 void AppController::startCapture()
 {
+    if (m_triggerModeActive) {
+        stopTriggerMode();
+    }
+
     if (m_captureInProgress || !m_serverConnected) {
         return;
     }
@@ -731,3 +739,272 @@ void AppController::transmitSignal()
     m_status = "Transmit requested";
     emit statusChanged();
 }
+
+bool AppController::triggerModeActive() const
+{
+    return m_triggerModeActive;
+}
+
+int AppController::armedTriggerCount() const
+{
+    return m_armedTriggerCount;
+}
+
+QString AppController::lastTriggeredSignal() const
+{
+    return m_lastTriggeredSignal;
+}
+
+QString AppController::lastTriggeredCommand() const
+{
+    return m_lastTriggeredCommand;
+}
+
+QString AppController::triggerStatusText() const
+{
+    return m_triggerStatusText;
+}
+
+QStringList AppController::triggerLog() const
+{
+    return m_triggerLog;
+}
+
+QVariantList AppController::armedSignals() const
+{
+    QVariantList list;
+    const auto& all = m_storage.getSignals();
+    for (size_t i = 0; i < all.size(); ++i) {
+        if (!all[i].shellCommand.empty()) {
+            QVariantMap item;
+            item["index"] = static_cast<int>(i);
+            item["name"] = QString::fromStdString(all[i].name);
+            item["rcdName"] = QString::fromStdString(all[i].rcdName);
+            item["protocol"] = QString::fromStdString(all[i].protocol);
+            item["frequency"] = static_cast<int>(all[i].frequency_khz);
+            item["pulseCount"] = static_cast<int>(all[i].pulses.size());
+            item["shellCommand"] = QString::fromStdString(all[i].shellCommand);
+            list.append(item);
+        }
+    }
+    return list;
+}
+
+void AppController::startTriggerMode()
+{
+    if (m_triggerModeActive) {
+        return;
+    }
+
+    if (!m_serverConnected) {
+        m_status = "Cannot start trigger mode: Server offline";
+        m_triggerStatusText = m_status;
+        emit statusChanged();
+        emit triggerStatusTextChanged();
+        return;
+    }
+
+    if (!m_irDeviceConnected) {
+        m_status = "Cannot start trigger mode: IR hardware disconnected";
+        m_triggerStatusText = m_status;
+        emit statusChanged();
+        emit triggerStatusTextChanged();
+        return;
+    }
+
+    if (m_captureInProgress) {
+        cancelCapture();
+    }
+
+    m_storage.loadFromFile();
+    refreshSignals();
+
+    const auto armedList = armedSignals();
+    m_armedTriggerCount = armedList.size();
+    emit armedSignalsChanged();
+    emit armedTriggerCountChanged();
+
+    if (m_armedTriggerCount == 0) {
+        m_status = "No signals with shell commands configured";
+        m_triggerStatusText = "No signals with shell commands found. Assign a shell command using Edit (✎) to arm it.";
+        appendTriggerLog(QString("[%1] WARNING: No signals with configured shell commands found.").arg(QTime::currentTime().toString("HH:mm:ss")));
+        emit statusChanged();
+        emit triggerStatusTextChanged();
+        return;
+    }
+
+    m_triggerModeActive = true;
+    m_triggerStatusText = QString("Trigger Mode Active — Listening for %1 armed signal%2...")
+                              .arg(m_armedTriggerCount)
+                              .arg(m_armedTriggerCount == 1 ? "" : "s");
+    m_status = m_triggerStatusText;
+    appendTriggerLog(QString("[%1] Trigger Mode started. %2 armed trigger%3 waiting.")
+                         .arg(QTime::currentTime().toString("HH:mm:ss"))
+                         .arg(m_armedTriggerCount)
+                         .arg(m_armedTriggerCount == 1 ? "" : "s"));
+
+    emit triggerModeActiveChanged();
+    emit triggerStatusTextChanged();
+    emit statusChanged();
+
+    pollNextTrigger();
+}
+
+void AppController::stopTriggerMode()
+{
+    if (!m_triggerModeActive) {
+        return;
+    }
+
+    m_triggerModeActive = false;
+    if (m_triggerReply) {
+        m_triggerReply->abort();
+        m_triggerReply = nullptr;
+    }
+
+    appendTriggerLog(QString("[%1] Trigger Mode stopped.").arg(QTime::currentTime().toString("HH:mm:ss")));
+    m_triggerStatusText = "Trigger Mode stopped";
+    m_status = "Trigger Mode stopped";
+
+    emit triggerModeActiveChanged();
+    emit triggerStatusTextChanged();
+    emit statusChanged();
+}
+
+void AppController::toggleTriggerMode()
+{
+    if (m_triggerModeActive) {
+        stopTriggerMode();
+    } else {
+        startTriggerMode();
+    }
+}
+
+void AppController::clearTriggerLog()
+{
+    m_triggerLog.clear();
+    emit triggerLogChanged();
+}
+
+void AppController::appendTriggerLog(const QString &entry)
+{
+    m_triggerLog.prepend(entry);
+    while (m_triggerLog.size() > 100) {
+        m_triggerLog.removeLast();
+    }
+    emit triggerLogChanged();
+}
+
+void AppController::pollNextTrigger()
+{
+    if (!m_triggerModeActive) {
+        return;
+    }
+
+    if (!m_serverConnected || !m_irDeviceConnected) {
+        appendTriggerLog(QString("[%1] ERROR: Server or USB IR device disconnected.").arg(QTime::currentTime().toString("HH:mm:ss")));
+        m_triggerStatusText = "Device disconnected. Trigger mode stopped.";
+        stopTriggerMode();
+        return;
+    }
+
+    const QUrl requestUrl = QUrl(m_apiUrl).resolved(QUrl("/api/v1/capture"));
+    QNetworkRequest request(requestUrl);
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+
+    QJsonObject body;
+    body["timeout"] = 2.0;
+    const QByteArray payload = QJsonDocument(body).toJson(QJsonDocument::Compact);
+
+    m_triggerReply = m_networkManager->post(request, payload);
+    connect(m_triggerReply, &QNetworkReply::finished, this, [this]() {
+        QNetworkReply *reply = m_triggerReply;
+        m_triggerReply = nullptr;
+
+        if (!reply) {
+            return;
+        }
+
+        const bool wasActive = m_triggerModeActive;
+        const auto err = reply->error();
+        const QByteArray data = reply->readAll();
+        reply->deleteLater();
+
+        if (!wasActive) {
+            return;
+        }
+
+        if (err == QNetworkReply::OperationCanceledError) {
+            return;
+        }
+
+        if (err == QNetworkReply::NoError && !data.isEmpty()) {
+            QJsonParseError parseError;
+            const QJsonDocument document = QJsonDocument::fromJson(data, &parseError);
+            if (parseError.error == QJsonParseError::NoError && document.isObject()) {
+                const QJsonObject object = document.object();
+                if (object.value("success").toBool(false) && object.contains("signal")) {
+                    const QJsonObject signalObject = object.value("signal").toObject();
+                    const QJsonArray pulseArray = signalObject.value("pulses").toArray();
+                    ir::IrSignal sig;
+                    for (const auto &p : pulseArray) {
+                        sig.pulses.push_back(p.toInt());
+                    }
+                    sig.frequency_khz = static_cast<uint8_t>(signalObject.value("frequency").toInt(38));
+                    sig.timestamp = std::chrono::system_clock::now();
+
+                    auto matched = m_storage.findMatchingSignal(sig);
+                    if (matched && !matched->shellCommand.empty()) {
+                        m_lastTriggeredSignal = QString::fromStdString(matched->name);
+                        m_lastTriggeredCommand = QString::fromStdString(matched->shellCommand);
+                        QString rcdName = QString::fromStdString(matched->rcdName);
+
+                        emit lastTriggeredSignalChanged();
+                        emit lastTriggeredCommandChanged();
+
+                        appendTriggerLog(QString("[%1] TRIGGER DETECTED: \"%2\" [%3]")
+                                             .arg(QTime::currentTime().toString("HH:mm:ss"))
+                                             .arg(m_lastTriggeredSignal)
+                                             .arg(rcdName));
+                        appendTriggerLog(QString("[%1] EXECUTING COMMAND: %2")
+                                             .arg(QTime::currentTime().toString("HH:mm:ss"))
+                                             .arg(m_lastTriggeredCommand));
+
+#if defined(_WIN32)
+                        QProcess::startDetached("cmd.exe", QStringList() << "/c" << m_lastTriggeredCommand);
+#else
+                        QProcess::startDetached("/bin/sh", QStringList() << "-c" << m_lastTriggeredCommand);
+#endif
+
+                        m_triggerStatusText = QString("Executed: %1. Waiting for next trigger...")
+                                                  .arg(m_lastTriggeredCommand);
+                        m_status = m_triggerStatusText;
+                        emit triggerStatusTextChanged();
+                        emit statusChanged();
+
+                        // Debounce delay to prevent burst repeat triggers before listening for the next command
+                        QTimer::singleShot(350, this, &AppController::pollNextTrigger);
+                        return;
+                    } else if (matched) {
+                        appendTriggerLog(QString("[%1] Ignored: \"%2\" [%3] (no shell command configured)")
+                                             .arg(QTime::currentTime().toString("HH:mm:ss"))
+                                             .arg(QString::fromStdString(matched->name))
+                                             .arg(QString::fromStdString(matched->rcdName)));
+                    } else {
+                        appendTriggerLog(QString("[%1] Ignored: IR signal (%2 pulses) does not match any armed trigger")
+                                             .arg(QTime::currentTime().toString("HH:mm:ss"))
+                                             .arg(sig.pulses.size()));
+                    }
+                }
+            }
+            pollNextTrigger();
+            return;
+        }
+
+        if (m_triggerModeActive) {
+            int retryDelay = (err == QNetworkReply::TimeoutError || reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() == 408) ? 50 : 500;
+            QTimer::singleShot(retryDelay, this, &AppController::pollNextTrigger);
+        }
+    });
+}
+

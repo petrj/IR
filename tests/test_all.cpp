@@ -523,6 +523,96 @@ void testRemoteControlDeviceStorageAndMigration() {
     std::remove(testPath.c_str());
 }
 
+void testTriggerModeMatchingAndExecution() {
+    std::cout << "  [CORE] Testing Trigger Mode signal matching and command arming..." << std::endl;
+
+    std::string testPath = "/tmp/test_trigger_mode_storage.json";
+    std::remove(testPath.c_str());
+
+    {
+        ir::SignalStorage storage(testPath);
+
+        // 1. Armed signal with shell command
+        ir::SavedIrSignal triggerSig1;
+        triggerSig1.name = "Volume Up";
+        triggerSig1.protocol = "NEC";
+        triggerSig1.frequency_khz = 38;
+        triggerSig1.pulses = ir::IrProtocol::encodeNec(0x00, 0x10);
+        triggerSig1.shellCommand = "pactl set-sink-volume @DEFAULT_SINK@ +5%";
+        storage.addSignal(triggerSig1, "Living Room TV");
+
+        // 2. Armed signal with another shell command
+        ir::SavedIrSignal triggerSig2;
+        triggerSig2.name = "Volume Down";
+        triggerSig2.protocol = "NEC";
+        triggerSig2.frequency_khz = 38;
+        triggerSig2.pulses = ir::IrProtocol::encodeNec(0x00, 0x11);
+        triggerSig2.shellCommand = "pactl set-sink-volume @DEFAULT_SINK@ -5%";
+        storage.addSignal(triggerSig2, "Living Room TV");
+
+        // 3. Unarmed signal (NO shell command)
+        ir::SavedIrSignal unarmedSig;
+        unarmedSig.name = "Info";
+        unarmedSig.protocol = "NEC";
+        unarmedSig.frequency_khz = 38;
+        unarmedSig.pulses = ir::IrProtocol::encodeNec(0x00, 0x12);
+        unarmedSig.shellCommand = "";
+        storage.addSignal(unarmedSig, "Living Room TV");
+
+        assert(storage.count() == 3);
+
+        // Filter armed signals (same logic as TUI and GUI trigger modes)
+        std::vector<ir::SavedIrSignal> armedSignals;
+        for (const auto& s : storage.getSignals()) {
+            if (!s.shellCommand.empty()) {
+                armedSignals.push_back(s);
+            }
+        }
+        assert(armedSignals.size() == 2);
+        assert(armedSignals[0].name == "Volume Up");
+        assert(armedSignals[0].shellCommand == "pactl set-sink-volume @DEFAULT_SINK@ +5%");
+        assert(armedSignals[1].name == "Volume Down");
+        assert(armedSignals[1].shellCommand == "pactl set-sink-volume @DEFAULT_SINK@ -5%");
+
+        // 4. Simulate receiving Trigger 1
+        ir::IrSignal incoming1;
+        incoming1.pulses = triggerSig1.pulses;
+        incoming1.frequency_khz = 38;
+        auto matched1 = storage.findMatchingSignal(incoming1);
+        assert(matched1.has_value());
+        assert(matched1->name == "Volume Up");
+        assert(!matched1->shellCommand.empty());
+        assert(matched1->shellCommand == "pactl set-sink-volume @DEFAULT_SINK@ +5%");
+
+        // 5. Simulate receiving Trigger 2
+        ir::IrSignal incoming2;
+        incoming2.pulses = triggerSig2.pulses;
+        incoming2.frequency_khz = 38;
+        auto matched2 = storage.findMatchingSignal(incoming2);
+        assert(matched2.has_value());
+        assert(matched2->name == "Volume Down");
+        assert(!matched2->shellCommand.empty());
+        assert(matched2->shellCommand == "pactl set-sink-volume @DEFAULT_SINK@ -5%");
+
+        // 6. Simulate receiving unarmed signal: matched, but shell command is empty
+        ir::IrSignal incomingUnarmed;
+        incomingUnarmed.pulses = unarmedSig.pulses;
+        incomingUnarmed.frequency_khz = 38;
+        auto matchedUnarmed = storage.findMatchingSignal(incomingUnarmed);
+        assert(matchedUnarmed.has_value());
+        assert(matchedUnarmed->name == "Info");
+        assert(matchedUnarmed->shellCommand.empty());
+
+        // 7. Simulate receiving an unknown signal: not matched
+        ir::IrSignal unknownSig;
+        unknownSig.pulses = ir::IrProtocol::encodeNec(0x99, 0x99);
+        unknownSig.frequency_khz = 38;
+        auto matchedUnknown = storage.findMatchingSignal(unknownSig);
+        assert(!matchedUnknown.has_value());
+    }
+
+    std::remove(testPath.c_str());
+}
 
 // ============================================================================
 // PART 2: REST HTTP API SERVER INTEGRATION TESTS
@@ -656,11 +746,13 @@ int main(int argc, char* argv[]) {
             testIrUsbTransceiverClass();
         } else if (filter == "storage_matching") {
             testSignalStorageAndMatching();
+        } else if (filter == "trigger_mode") {
+            testTriggerModeMatchingAndExecution();
         } else if (filter == "rest_api") {
             testApiServerEndpoints();
         } else {
             std::cerr << "Unknown test filter: " << filter << "\n";
-            std::cerr << "Supported tests: ring_buffer, pulse_parsing, agc_leader, tiqiaa_payload, multi_chunk, nec_codec, transceiver, storage_matching, rest_api\n";
+            std::cerr << "Supported tests: ring_buffer, pulse_parsing, agc_leader, tiqiaa_payload, multi_chunk, nec_codec, transceiver, storage_matching, trigger_mode, rest_api\n";
             return 1;
         }
         std::cout << "[PASSED] Test " << filter << " completed successfully.\n";
@@ -680,6 +772,7 @@ int main(int argc, char* argv[]) {
     testNecProtocolCodec();
     testIrUsbTransceiverClass();
     testSignalStorageAndMatching();
+    testTriggerModeMatchingAndExecution();
     testSignalStorageUsesApplicationDataFolder();
     testRemoteControlDeviceStorageAndMigration();
     std::cout << "-> All ir_core tests passed!\n";

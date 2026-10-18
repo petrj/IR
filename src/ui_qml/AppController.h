@@ -30,6 +30,13 @@ class AppController : public QObject
     Q_PROPERTY(QString captureRcdName READ captureRcdName WRITE setCaptureRcdName NOTIFY captureRcdNameChanged)
     Q_PROPERTY(QStringList rcdList READ rcdList NOTIFY rcdListChanged)
     Q_PROPERTY(QString selectedDeviceFilter READ selectedDeviceFilter WRITE setSelectedDeviceFilter NOTIFY selectedDeviceFilterChanged)
+    Q_PROPERTY(bool triggerModeActive READ triggerModeActive NOTIFY triggerModeActiveChanged)
+    Q_PROPERTY(int armedTriggerCount READ armedTriggerCount NOTIFY armedTriggerCountChanged)
+    Q_PROPERTY(QString lastTriggeredSignal READ lastTriggeredSignal NOTIFY lastTriggeredSignalChanged)
+    Q_PROPERTY(QString lastTriggeredCommand READ lastTriggeredCommand NOTIFY lastTriggeredCommandChanged)
+    Q_PROPERTY(QString triggerStatusText READ triggerStatusText NOTIFY triggerStatusTextChanged)
+    Q_PROPERTY(QStringList triggerLog READ triggerLog NOTIFY triggerLogChanged)
+    Q_PROPERTY(QVariantList armedSignals READ armedSignals NOTIFY armedSignalsChanged)
 
 public:
     explicit AppController(QObject *parent = nullptr);
@@ -49,6 +56,13 @@ public:
     QString apiHost() const;
     bool serverRunning() const;
     QVariantList savedSignals() const;
+    bool triggerModeActive() const;
+    int armedTriggerCount() const;
+    QString lastTriggeredSignal() const;
+    QString lastTriggeredCommand() const;
+    QString triggerStatusText() const;
+    QStringList triggerLog() const;
+    QVariantList armedSignals() const;
     void setApiUrl(const QString &url);
     void setCaptureName(const QString &name);
     void setCaptureRcdName(const QString &name);
@@ -66,6 +80,10 @@ public slots:
     Q_INVOKABLE void transmitSavedSignal(int index);
     Q_INVOKABLE void refreshUsbStatusDialog();
     Q_INVOKABLE void saveCapturedSignal(const QString &rcdName = QString(), const QString &signalName = QString(), const QString &shellCommand = QString());
+    Q_INVOKABLE void startTriggerMode();
+    Q_INVOKABLE void stopTriggerMode();
+    Q_INVOKABLE void toggleTriggerMode();
+    Q_INVOKABLE void clearTriggerLog();
     void cancelCapture();
     void transmitSignal();
 
@@ -85,11 +103,21 @@ signals:
     void captureRcdNameChanged();
     void rcdListChanged();
     void selectedDeviceFilterChanged();
+    void triggerModeActiveChanged();
+    void armedTriggerCountChanged();
+    void lastTriggeredSignalChanged();
+    void lastTriggeredCommandChanged();
+    void triggerStatusTextChanged();
+    void triggerLogChanged();
+    void armedSignalsChanged();
 
 private slots:
     void onReplyFinished(QNetworkReply *reply);
 
 private:
+    void pollNextTrigger();
+    void appendTriggerLog(const QString &entry);
+
     QString m_status;
     QString m_apiUrl;
     bool m_serverConnected;
@@ -109,4 +137,12 @@ private:
     bool m_serverRunning;
     QVariantList m_signals;
     ir::SignalStorage m_storage;
+
+    bool m_triggerModeActive{false};
+    int m_armedTriggerCount{0};
+    QString m_lastTriggeredSignal;
+    QString m_lastTriggeredCommand;
+    QString m_triggerStatusText{"Trigger mode inactive"};
+    QStringList m_triggerLog;
+    QNetworkReply *m_triggerReply{nullptr};
 };

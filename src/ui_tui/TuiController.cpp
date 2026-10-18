@@ -165,8 +165,9 @@ void TuiController::printMenu() {
     std::cout << "  6) USB Hardware Information & Diagnostics (via API)\n";
     std::cout << "  7) Simulate IR Capture (Test without hardware)\n";
     std::cout << "  8) Add Signal Manually (Create new signal)\n";
+    std::cout << "  9) Trigger Mode (Listen and execute assigned shell commands)\n";
     std::cout << "  Q) Quit\n";
-    std::cout << "Select option (1-8, Q): " << std::flush;
+    std::cout << "Select option (1-9, Q): " << std::flush;
 }
 
 void TuiController::displaySignalDetails(const IrSignal& signal, const std::string& title, const std::string& identifiedName, const std::string& identifiedRcd, const std::string& identifiedShellCmd) {
@@ -421,6 +422,105 @@ void TuiController::startContinuousMonitor() {
 
     m_monitoring = false;
     std::cout << "[INFO] Continuous monitor stopped.\n";
+}
+
+void TuiController::startTriggerMode() {
+    if (!isDeviceConnected()) {
+        std::cerr << "[ERROR] Cannot start trigger mode: IR Transceiver hardware is not connected.\n";
+        return;
+    }
+
+    m_storage.loadFromFile();
+
+    std::vector<SavedIrSignal> armedSignals;
+    for (const auto& s : m_storage.getSignals()) {
+        if (!s.shellCommand.empty()) {
+            armedSignals.push_back(s);
+        }
+    }
+
+    if (armedSignals.empty()) {
+        std::cout << "\n[WARNING] No signals with configured shell commands found in storage ("
+                  << m_storage.getStoragePath() << ").\n";
+        std::cout << "[TIP] Use Option 4 (Edit Saved Signals) or Option 8 (Add Signal Manually) to assign a shell command first.\n";
+        return;
+    }
+
+    std::cout << "\n=======================================================\n";
+    std::cout << " TRIGGER MODE ACTIVE (Listening for Shell Triggers)\n";
+    std::cout << "=======================================================\n";
+    std::cout << "Armed Triggers (" << armedSignals.size() << " signal" << (armedSignals.size() == 1 ? "" : "s") << "):\n";
+    for (const auto& s : armedSignals) {
+        std::cout << "  * \"" << s.name << "\" [" << s.rcdName << "]: " << s.shellCommand << "\n";
+    }
+    std::cout << "-------------------------------------------------------\n";
+    std::cout << "Waiting for one of the armed signals...\n";
+    std::cout << "When received, its shell command will execute automatically.\n";
+    std::cout << "Press ENTER to return to menu.\n";
+    std::cout << "=======================================================\n" << std::flush;
+
+    m_monitoring = true;
+    while (m_monitoring.load()) {
+        if (checkStdinHasInput()) {
+            std::string dummy;
+            std::getline(std::cin, dummy);
+            break;
+        }
+
+        auto pollClient = createClient(4);
+        if (!pollClient) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            continue;
+        }
+
+        nlohmann::json reqBody = {{"timeout", 1.5f}};
+        auto res = pollClient->Post("/api/v1/capture", reqBody.dump(), "application/json");
+
+        if (checkStdinHasInput()) {
+            std::string dummy;
+            std::getline(std::cin, dummy);
+            break;
+        }
+
+        if (res && res->status == 200) {
+            try {
+                auto j = nlohmann::json::parse(res->body);
+                if (j.contains("signal") && j["signal"].contains("pulses")) {
+                    IrSignal sig;
+                    sig.pulses = j["signal"]["pulses"].get<std::vector<int>>();
+                    sig.frequency_khz = static_cast<uint8_t>(j["signal"].value("frequency", 38));
+                    sig.timestamp = std::chrono::system_clock::now();
+
+                    auto matched = m_storage.findMatchingSignal(sig);
+                    if (matched && !matched->shellCommand.empty()) {
+                        std::cout << "\n>>> [TRIGGER DETECTED] Signal: \"" << matched->name
+                                  << "\" on device \"" << matched->rcdName << "\"\n";
+                        std::cout << ">>> [EXECUTING COMMAND] " << matched->shellCommand << "\n";
+                        int ret = std::system(matched->shellCommand.c_str());
+                        std::cout << ">>> [COMMAND FINISHED] Exit code: " << ret << "\n";
+                        std::cout << ">>> Waiting for next trigger signal... (Press ENTER to stop)\n" << std::flush;
+                        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+                    } else if (matched) {
+                        std::cout << "\n>>> [IGNORED] Received \"" << matched->name
+                                  << "\" [" << matched->rcdName << "], but no shell command is configured.\n"
+                                  << ">>> Waiting for trigger signal... (Press ENTER to stop)\n" << std::flush;
+                    } else {
+                        std::cout << "\n>>> [IGNORED] Received IR signal (" << sig.pulses.size()
+                                  << " pulses), but it does not match any armed trigger.\n"
+                                  << ">>> Waiting for trigger signal... (Press ENTER to stop)\n" << std::flush;
+                    }
+                }
+            } catch (...) {}
+        } else if (res && res->status == 503) {
+            std::cerr << "[ERROR] Transceiver disconnected. Stopping trigger mode.\n";
+            break;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+
+    m_monitoring = false;
+    std::cout << "[INFO] Trigger mode stopped.\n";
 }
 
 void TuiController::saveLastCapturedSignal() {
@@ -1244,12 +1344,15 @@ void TuiController::runInteractiveLoop() {
             case '8':
                 addSignalManually();
                 break;
+            case '9':
+                startTriggerMode();
+                break;
             case 'Q':
                 std::cout << "Exiting console test tool. Goodbye!\n";
                 running = false;
                 break;
             default:
-                std::cout << "[ERROR] Unknown option: '" << choice << "'. Please select 1-8 or Q.\n";
+                std::cout << "[ERROR] Unknown option: '" << choice << "'. Please select 1-9 or Q.\n";
                 break;
         }
     }

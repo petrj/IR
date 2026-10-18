@@ -39,6 +39,7 @@ The toolbar includes:
 - **Refresh (↻)** button
 - **Add Manual (+)** button
 - **Capture (📡)** button
+- **Trigger Mode (⚡)** button: Opens the automated Trigger Mode modal and indicates whether trigger listening is active
 - **RCD Filter ComboBox**: Filter displayed signals by "All Devices" or a specific Remote Control Device.
 
 ### Add Manual & Edit Signal
@@ -81,6 +82,19 @@ Each saved-signal card includes a Delete (🗑) button. The action calls `Signal
 ### Transmit Saved Signal
 Each saved-signal card includes a Send (➤) button. This transmits the signal through the hardware API via `POST /api/v1/send`.
 
+### Trigger Mode & Automation (`TriggerPopup.qml`)
+Trigger Mode enables automated execution of shell commands when specific IR signals are received:
+- Opened via the toolbar **`⚡ Trigger Mode`** button.
+- **Armed Triggers**: Scans all saved signals in the local database and lists every command configured with a `shellCommand`. If no commands are configured, displays clear instructions on how to add or edit commands.
+- **Execution Workflow**:
+  1. User starts Trigger Mode by clicking **`▶ Start Trigger Mode`**.
+  2. The application begins asynchronous, non-blocking polling through the HTTP REST API.
+  3. When an armed IR signal is received, the app matches the signal in the local catalog and launches its assigned shell command asynchronously via the system shell (`/bin/sh -c` on Linux, `cmd.exe /c` on Windows).
+  4. The event is timestamped and recorded in the real-time **Activity Log**.
+  5. The app debounces repeat bursts and **immediately resumes listening for the next trigger command** in an ongoing cycle.
+  6. Signals without shell commands or unrecognized noise are logged as ignored and do not interrupt the listening loop.
+- **Background Operation**: The user can click "Run in Background" (or close the popup); Trigger Mode continues running with a live `Trigger Active (N)` indicator in the top bar. Click `⏹ Stop Trigger Mode` at any time to halt automated listening.
+
 ---
 
 ## Storage Access Model
@@ -101,9 +115,10 @@ Both the QML app and the TUI share the same JSON file and the same Remote Contro
 ### QML Files
 
 - `main.qml` — main window, signal card list with inline edit/transmit/delete buttons, RCD filter, action toolbar
-- `TopBar.qml` — server and USB status indicators
+- `TopBar.qml` — server and USB status indicators, live Trigger Mode badge
 - `ManualAddPopup.qml` — dual-purpose modal for adding manual signals or editing all properties (including shell command) of existing signals
 - `CapturePopup.qml` — capture waiting, RCD selector, signal naming, and optional shell command configuration UX
+- `TriggerPopup.qml` — Trigger Mode modal with armed signals list, live execution activity log, and start/stop controls
 
 ### Controller Bridge
 
@@ -118,6 +133,8 @@ Both the QML app and the TUI share the same JSON file and the same Remote Contro
 - saves captured signals (`saveCapturedSignal(...)`) and manual entries (`addSignalManually(...)`) with optional shell command parameters
 - deletes signals and prunes empty RCDs
 - transmits a saved signal through the hardware API
+- manages **Trigger Mode** lifecycle: `startTriggerMode()`, `stopTriggerMode()`, `toggleTriggerMode()`, `clearTriggerLog()`
+- exposes Trigger Mode reactive properties: `triggerModeActive` (`bool`), `armedTriggerCount` (`int`), `lastTriggeredSignal` (`QString`), `lastTriggeredCommand` (`QString`), `triggerStatusText` (`QString`), `triggerLog` (`QStringList`), `armedSignals` (`QVariantList`)
 
 ### Behaviour Contract
 

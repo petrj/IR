@@ -26,6 +26,7 @@ int main(int argc, char* argv[]) {
                       << "Options:\n"
                       << "  --api, -a <url>     Set API server base URL (default: " << apiUrl << ")\n"
                       << "  --read, -r          Capture a single IR signal via API and exit\n"
+                      << "  --trigger, -t       Start Trigger Mode (listen and execute shell commands)\n"
                       << "  --list, -l          List all saved IR signals\n"
                       << "  --send, -s [arg]    Transmit IR signal via API (interactive, index, name, or pulses)\n"
                       << "  --info, -i          Print API & hardware status diagnostics\n"
@@ -45,6 +46,9 @@ int main(int argc, char* argv[]) {
         std::string arg = argv[cmdArgIdx];
         if (arg == "--read" || arg == "-r") {
             return controller.captureOnce(10.0f) ? 0 : 1;
+        } else if (arg == "--trigger" || arg == "-t") {
+            controller.startTriggerMode();
+            return 0;
         } else if (arg == "--list" || arg == "-l") {
             controller.listSavedSignals();
             return 0;

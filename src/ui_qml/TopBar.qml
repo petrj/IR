@@ -13,6 +13,7 @@ Rectangle {
 
     property Dialog startServerDialog: null
     property Dialog usbStatusDialog: null
+    property Popup triggerPopup: null
 
     RowLayout {
         anchors.fill: parent
@@ -50,6 +51,34 @@ Rectangle {
                     enabled: !appController.serverRunning
                     cursorShape: Qt.PointingHandCursor
                     onClicked: if (root.startServerDialog) root.startServerDialog.open()
+                }
+            }
+        }
+
+        // Trigger Mode active badge
+        Row {
+            spacing: 6
+            Layout.alignment: Qt.AlignVCenter
+            visible: appController.triggerModeActive
+
+            Rectangle {
+                width: 10
+                height: 10
+                radius: 5
+                color: "#38bdf8"
+                border.color: "#e0f2fe"
+                border.width: 1
+            }
+
+            Text {
+                text: "Trigger Active (" + appController.armedTriggerCount + ")"
+                color: "#38bdf8"
+                font.pixelSize: 13
+                font.bold: true
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: if (root.triggerPopup) root.triggerPopup.open()
                 }
             }
         }

@@ -13,7 +13,7 @@ Window {
     property string currentDeleteName: ""
 
     // Top docked header bar (moved to TopBar.qml)
-    TopBar { id: topBar; startServerDialog: startServerDialog; usbStatusDialog: usbStatusDialog }
+    TopBar { id: topBar; startServerDialog: startServerDialog; usbStatusDialog: usbStatusDialog; triggerPopup: triggerPopup }
 
     // Main content below the top bar
     Column {
@@ -67,6 +67,28 @@ Window {
                         height: 28
                         font.pixelSize: 14
                         onClicked: appController.startCapture()
+                    }
+
+                    Button {
+                        id: triggerModeBtn
+                        text: appController.triggerModeActive ? "⚡ Trigger Active" : "⚡ Trigger Mode"
+                        height: 28
+                        font.pixelSize: 12
+                        font.bold: true
+                        contentItem: Text {
+                            text: triggerModeBtn.text
+                            font: triggerModeBtn.font
+                            color: appController.triggerModeActive ? "#38bdf8" : "#cbd5e1"
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                        background: Rectangle {
+                            radius: 4
+                            color: appController.triggerModeActive ? "#0c4a6e" : "#1e293b"
+                            border.color: appController.triggerModeActive ? "#38bdf8" : "#475569"
+                            border.width: 1
+                        }
+                        onClicked: triggerPopup.open()
                     }
 
                     ComboBox {
@@ -321,4 +343,6 @@ Window {
     ManualAddPopup { id: manualAddPopup }
 
     CapturePopup { id: capturePopup }
+ 
+    TriggerPopup { id: triggerPopup }
 }

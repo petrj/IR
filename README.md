@@ -83,6 +83,7 @@ IR-QtApp/
 │   │   ├── main.qml              # Declarative UI layout
 │   │   ├── ManualAddPopup.qml    # Manual signal addition and editing popup
 │   │   ├── CapturePopup.qml      # Signal capture and save popup
+│   │   ├── TriggerPopup.qml      # Trigger Mode modal with armed list & live execution log
 │   │   └── TopBar.qml            # Status and connection header
 │   └── ui_tui/                   # Terminal GUI Test Tool (HTTP API Consumer)
 │       ├── main_tui.cpp          # Console entry point & CLI parser
@@ -228,6 +229,9 @@ The `ir_tui` executable provides an interactive console menu and CLI commands th
 
 # 6. Display hardware diagnostics and connection status via API
 ./build/debug/ir_tui --info
+
+# 7. Start Trigger Mode (listen for signals with defined shell commands & execute them)
+./build/debug/ir_tui --trigger
 ```
 
 ### Interactive Menu Features
@@ -244,6 +248,7 @@ When run interactively (`./build/debug/ir_tui`), the console dashboard provides:
 * **6) Hardware Diagnostics:** View USB transceiver descriptors, firmware version, and server health.
 * **7) Simulate IR Capture:** Synthesize NEC signals to verify decoding, matching, and shell command triggers without hardware.
 * **8) Add Signal Manually:** Guided wizard to manually create and store a signal with custom pulse sequences or NEC hex codes and an optional shell command.
+* **9) Trigger Mode:** Automated background listening loop. Arms all saved signals that have a configured shell command, executes the corresponding shell command whenever an armed signal is received, and continuously waits for the next command until stopped.
 
 > [!TIP]
 > You can also configure the target API server URL using the `IR_API_URL` environment variable:
@@ -251,6 +256,34 @@ When run interactively (`./build/debug/ir_tui`), the console dashboard provides:
 > export IR_API_URL="http://192.168.1.100:8080"
 > ./build/debug/ir_tui
 > ```
+
+---
+
+## ⚡ Trigger Mode (Automation & Shell Execution)
+
+**Trigger Mode** transforms your computer into an automated IR-controlled command center.
+
+### Workflow:
+1. **Arming Triggers**: When Trigger Mode is started, the application loads all stored signals and identifies every signal configured with an associated **shell command** (e.g., `pactl set-sink-volume @DEFAULT_SINK@ +5%`, `playerctl play-pause`, or any custom script).
+2. **Waiting for Signal**: The app actively monitors incoming IR signals via the transceiver.
+3. **Command Execution**: As soon as a user presses an armed button on their remote control:
+   * The signal is identified and matched against the local signal catalog.
+   * Its configured shell command is automatically executed.
+4. **Continuous Operation**: After executing the command, the app **immediately resumes waiting for the next trigger command** in an ongoing loop. Unarmed signals and unrecognized noise are ignored without interrupting the listening cycle.
+
+### Using Trigger Mode in TUI (`ir_tui`)
+* **Interactive Menu**: Run `./build/debug/ir_tui` and select Option `9) Trigger Mode`.
+* **Direct CLI Launch**: Run `./build/debug/ir_tui --trigger` (or `-t`).
+* **Exit**: Press `ENTER` at any time to return to the menu.
+
+### Using Trigger Mode in GUI (`ir_gui`)
+* Click the **`⚡ Trigger Mode`** button in the top toolbar to open the **Trigger Mode** control modal.
+* The modal provides:
+  * **Real-time Status**: Shows active/inactive state and count of armed triggers.
+  * **Armed Triggers Panel**: Lists every signal armed with a shell command (`cmd: <command>`).
+  * **Live Activity Log**: Streams every trigger detection, execution event, and timestamp.
+  * **`▶ Start Trigger Mode` / `⏹ Stop Trigger Mode`**: Start or stop automated listening with a single click.
+  * **Background Execution**: You can click "Run in Background" (or close the modal) to keep Trigger Mode running while you browse signals. A `Trigger Active (N)` status badge appears in the top bar to indicate background operation.
 
 ---
 

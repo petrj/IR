@@ -2,6 +2,7 @@
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QFile>
 #include <QUrl>
 
 #include "AppController.h"
@@ -16,7 +17,24 @@ int main(int argc, char *argv[])
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("appController", &controller);
 
-    const QUrl qmlUrl = QUrl::fromLocalFile(QStringLiteral(IR_QML_SOURCE_DIR) + "/main.qml");
+    QUrl qmlUrl;
+#if defined(Q_OS_ANDROID)
+    if (QFile::exists(QStringLiteral(":/qt/qml/IR/main.qml"))) {
+        qmlUrl = QUrl(QStringLiteral("qrc:/qt/qml/IR/main.qml"));
+    } else {
+        qmlUrl = QUrl(QStringLiteral("qrc:/IR/main.qml"));
+    }
+#else
+    const QString localPath = QStringLiteral(IR_QML_SOURCE_DIR) + "/main.qml";
+    if (QFile::exists(localPath)) {
+        qmlUrl = QUrl::fromLocalFile(localPath);
+    } else if (QFile::exists(QStringLiteral(":/qt/qml/IR/main.qml"))) {
+        qmlUrl = QUrl(QStringLiteral("qrc:/qt/qml/IR/main.qml"));
+    } else {
+        qmlUrl = QUrl(QStringLiteral("qrc:/IR/main.qml"));
+    }
+#endif
+
     QObject::connect(
         &engine,
         &QQmlApplicationEngine::objectCreated,

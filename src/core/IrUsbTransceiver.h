@@ -3,7 +3,12 @@
 #include "IrProtocol.h"
 #include "RingBuffer.h"
 
+#if defined(IR_HAS_LIBUSB) && (IR_HAS_LIBUSB == 0)
+struct libusb_context;
+struct libusb_device_handle;
+#else
 #include <libusb-1.0/libusb.h>
+#endif
 #include <string>
 #include <vector>
 #include <mutex>

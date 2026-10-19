@@ -24,11 +24,17 @@ rm -f /tmp/test_api_storage.json \
       /tmp/test_unified_storage.json \
       /tmp/test_api_unified.json
 
-# Remove copied binaries from project root
+# Remove copied binaries and in-source cmake artifacts from project root
 rm -f "${SCRIPT_DIR}/ir_api_server" \
       "${SCRIPT_DIR}/ir_tui" \
       "${SCRIPT_DIR}/ir_tui_test" \
-      "${SCRIPT_DIR}/test_all"
+      "${SCRIPT_DIR}/test_all" \
+      "${SCRIPT_DIR}/CMakeCache.txt" \
+      "${SCRIPT_DIR}/CMakeCache.txt.prev" \
+      "${SCRIPT_DIR}/qtcsettings.cmake"
+rm -rf "${SCRIPT_DIR}/CMakeFiles" \
+       "${SCRIPT_DIR}/.cmake" \
+       "${SCRIPT_DIR}/.qtc"
 
 echo "========================================================"
 echo " CLEAN COMPLETED SUCCESSFULLY!"

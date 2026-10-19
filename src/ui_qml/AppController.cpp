@@ -11,9 +11,21 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QProcess>
+#include <QStandardPaths>
 #include <QTime>
 #include <QTimer>
 #include <QUrl>
+
+static std::string getAppStoragePath()
+{
+#if defined(Q_OS_ANDROID)
+    const QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    QDir().mkpath(dataDir);
+    return (dataDir + "/saved_ir_signals.json").toStdString();
+#else
+    return ir::SignalStorage::getDefaultStoragePath();
+#endif
+}
 
 AppController::AppController(QObject *parent)
     : QObject(parent)
@@ -33,7 +45,7 @@ AppController::AppController(QObject *parent)
     , m_usbStatusDetails("Loading USB status...")
     , m_apiHost()
     , m_serverRunning(false)
-    , m_storage(ir::SignalStorage::getDefaultStoragePath())
+    , m_storage(getAppStoragePath())
 {
     connect(m_networkManager, &QNetworkAccessManager::finished,
             this, &AppController::onReplyFinished);
@@ -648,6 +660,11 @@ void AppController::removeSavedSignal(int index)
 
 void AppController::startServer()
 {
+#if defined(Q_OS_ANDROID)
+    m_status = "API server cannot run locally on Android. Please configure network API host in settings.";
+    emit statusChanged();
+    return;
+#else
     if (m_serverRunning) {
         m_status = "API server already running";
         emit statusChanged();
@@ -686,6 +703,7 @@ void AppController::startServer()
 
     m_status = "Starting API server...";
     emit statusChanged();
+#endif
 }
 
 void AppController::transmitSavedSignal(int index)
@@ -972,6 +990,8 @@ void AppController::pollNextTrigger()
 
 #if defined(_WIN32)
                         QProcess::startDetached("cmd.exe", QStringList() << "/c" << m_lastTriggeredCommand);
+#elif defined(Q_OS_ANDROID)
+                        QProcess::startDetached("/system/bin/sh", QStringList() << "-c" << m_lastTriggeredCommand);
 #else
                         QProcess::startDetached("/bin/sh", QStringList() << "-c" << m_lastTriggeredCommand);
 #endif

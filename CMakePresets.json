@@ -23,6 +23,32 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
       }
+    },
+    {
+      "name": "android-debug",
+      "displayName": "Android Debug",
+      "description": "Android Debug build for Qt Creator",
+      "binaryDir": "${sourceDir}/build/android-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "BUILD_GUI": "ON",
+        "BUILD_SERVER": "OFF",
+        "BUILD_TUI": "OFF",
+        "BUILD_TESTS": "OFF"
+      }
+    },
+    {
+      "name": "android-release",
+      "displayName": "Android Release",
+      "description": "Android Release build for Qt Creator",
+      "binaryDir": "${sourceDir}/build/android-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_GUI": "ON",
+        "BUILD_SERVER": "OFF",
+        "BUILD_TUI": "OFF",
+        "BUILD_TESTS": "OFF"
+      }
     }
   ],
   "buildPresets": [
@@ -35,6 +61,16 @@
       "name": "release",
       "displayName": "Release Build",
       "configurePreset": "release"
+    },
+    {
+      "name": "android-debug",
+      "displayName": "Android Debug Build",
+      "configurePreset": "android-debug"
+    },
+    {
+      "name": "android-release",
+      "displayName": "Android Release Build",
+      "configurePreset": "android-release"
     }
   ],
   "testPresets": [

@@ -1,5 +1,5 @@
 # Qt QML GUI Application
-add_executable(ir_gui
+qt_add_executable(ir_gui
     main.cpp
     AppController.h
     AppController.cpp
@@ -7,7 +7,6 @@ add_executable(ir_gui
 
 target_include_directories(ir_gui PRIVATE
     ${CMAKE_SOURCE_DIR}/src/core
-    ${CMAKE_SOURCE_DIR}/src/ui_tui
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
@@ -21,18 +20,35 @@ target_link_libraries(ir_gui PRIVATE
     Qt6::Gui
     Qt6::Quick
     Qt6::QuickControls2
+    Qt6::Network
 )
 
-# Register QML files so IDEs (Qt Creator) show them in the project tree
-if (TARGET ir_gui)
-    qt_add_qml_module(ir_gui
-        URI IR
-        VERSION 1.0
-        QML_FILES
-            main.qml
-            TopBar.qml
-            ManualAddPopup.qml
-            CapturePopup.qml
-            TriggerPopup.qml
+# Android deployment and debugging configuration for Qt Creator
+if(ANDROID)
+    set_target_properties(ir_gui PROPERTIES
+        QT_ANDROID_PACKAGE_NAME "org.ir.transceiver"
+        QT_ANDROID_PACKAGE_VERSION_CODE 1
+        QT_ANDROID_PACKAGE_VERSION_NAME "${PROJECT_VERSION}"
+        QT_ANDROID_APP_NAME "IR Transceiver"
+        QT_ANDROID_PERMISSIONS "android.permission.INTERNET;android.permission.ACCESS_NETWORK_STATE;android.permission.ACCESS_WIFI_STATE"
     )
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/android")
+        set_target_properties(ir_gui PROPERTIES
+            QT_ANDROID_PACKAGE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/android"
+        )
+    endif()
 endif()
+
+# Register QML files so IDEs (Qt Creator) show them in the project tree and RCC bundles them
+qt_add_qml_module(ir_gui
+    URI IR
+    VERSION 1.0
+    QML_FILES
+        main.qml
+        TopBar.qml
+        ManualAddPopup.qml
+        CapturePopup.qml
+        TriggerPopup.qml
+)
+
+

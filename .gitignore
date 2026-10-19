@@ -1,2 +1,8 @@
 build/*
 CMakeLists.txt.user*
+CMakeCache.txt
+CMakeCache.txt.prev
+CMakeFiles/
+.cmake/
+qtcsettings.cmake
+.qtc/

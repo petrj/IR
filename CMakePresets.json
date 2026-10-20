@@ -49,6 +49,32 @@
         "BUILD_TUI": "OFF",
         "BUILD_TESTS": "OFF"
       }
+    },
+    {
+      "name": "pi-release",
+      "displayName": "Raspberry Pi Release",
+      "description": "Release build for Raspberry Pi and ARM SBCs",
+      "binaryDir": "${sourceDir}/build/pi-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_GUI": "ON",
+        "BUILD_SERVER": "ON",
+        "BUILD_TUI": "ON",
+        "BUILD_TESTS": "ON"
+      }
+    },
+    {
+      "name": "pi-headless-release",
+      "displayName": "Raspberry Pi Headless Release",
+      "description": "Headless Release build (Server + TUI) for Raspberry Pi",
+      "binaryDir": "${sourceDir}/build/pi-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_GUI": "OFF",
+        "BUILD_SERVER": "ON",
+        "BUILD_TUI": "ON",
+        "BUILD_TESTS": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -71,6 +97,16 @@
       "name": "android-release",
       "displayName": "Android Release Build",
       "configurePreset": "android-release"
+    },
+    {
+      "name": "pi-release",
+      "displayName": "Raspberry Pi Release Build",
+      "configurePreset": "pi-release"
+    },
+    {
+      "name": "pi-headless-release",
+      "displayName": "Raspberry Pi Headless Release Build",
+      "configurePreset": "pi-headless-release"
     }
   ],
   "testPresets": [
@@ -78,6 +114,11 @@
       "name": "debug",
       "displayName": "Debug Tests",
       "configurePreset": "debug"
+    },
+    {
+      "name": "pi-release",
+      "displayName": "Raspberry Pi Tests",
+      "configurePreset": "pi-release"
     }
   ]
 }

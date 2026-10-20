@@ -111,8 +111,8 @@ Ensure the following tools and libraries are installed on your build system:
 
 ### Installing Dependencies
 
-#### Ubuntu / Debian (.deb Packages)
-Run the following command to install all required dependencies for the full project, including the Qt GUI and Qt Creator debugging support:
+#### Host Ubuntu / Debian (.deb Packages for Desktop)
+Run the following command to install all required dependencies for the full project on your host desktop:
 
 ```bash
 sudo apt update
@@ -124,6 +124,62 @@ sudo apt install -y \
   libusb-1.0-0-dev \
   libcpp-httplib-dev \
   nlohmann-json3-dev
+```
+
+#### Raspberry Pi & ARM Cross-Compilation Packages (.deb)
+To cross-compile from your x86_64 Debian/Ubuntu PC for Raspberry Pi and similar ARM devices using `./build-release-pi.sh`:
+
+##### 1. For 64-bit Raspberry Pi (RPi 5, 4, 3, Zero 2 W, Orange Pi, Rock Pi, Odroid):
+```bash
+# Cross-compiler toolchain
+sudo apt update
+sudo apt install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+
+# Hardware USB transceiver library (libusb multiarch for arm64)
+sudo dpkg --add-architecture arm64
+sudo apt update
+sudo apt install -y libusb-1.0-0-dev:arm64
+
+# (Optional) QEMU user emulation to run the test suite directly on your PC:
+sudo apt install -y qemu-user-static
+```
+
+##### 2. For 32-bit Raspberry Pi (RPi 2, 3, 4 with 32-bit Raspberry Pi OS):
+```bash
+# Cross-compiler toolchain
+sudo apt update
+sudo apt install -y gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf
+
+# Hardware USB transceiver library (libusb multiarch for armhf)
+sudo dpkg --add-architecture armhf
+sudo apt update
+sudo apt install -y libusb-1.0-0-dev:armhf
+```
+
+#### Native Compilation on Raspberry Pi OS (.deb)
+If building directly on your Raspberry Pi (or similar ARM SBC) via `./build-release-pi.sh --native`:
+
+##### Headless Setup (REST API Server + Console TUI - No Qt required):
+```bash
+sudo apt update
+sudo apt install -y \
+  build-essential \
+  cmake \
+  libusb-1.0-0-dev \
+  libcpp-httplib-dev \
+  nlohmann-json3-dev
+```
+
+##### Full Setup with Qt QML GUI (on Raspberry Pi OS Desktop):
+```bash
+sudo apt install -y \
+  build-essential \
+  cmake \
+  libusb-1.0-0-dev \
+  libcpp-httplib-dev \
+  nlohmann-json3-dev \
+  qt6-base-dev \
+  qt6-declarative-dev
 ```
 
 > If you are using the Qt 6 toolchain, the essential GUI/debug packages are `qt6-base-dev`, `qt6-declarative-dev`, and `qt6-tools-dev`. The `qt5` packages are only needed for older Qt 5 compatibility setups and are not required for this project unless you intentionally build against Qt 5.
@@ -199,6 +255,18 @@ Convenience scripts are provided in the project root:
 
 # Build & test in Release mode (build/release)
 ./build-release.sh
+
+# Build for Raspberry Pi & ARM Single-Board Computers (build/pi-release)
+# Supports Raspberry Pi 3/4/5, Zero 2 W, Orange Pi, Rock Pi, Banana Pi, Odroid, etc.
+./build-release-pi.sh                         # Standard 64-bit ARM build (auto-detects native/cross)
+./build-release-pi.sh --headless              # Headless build (server + TUI, no Qt required)
+./build-release-pi.sh --arch armhf            # 32-bit ARM / Raspberry Pi OS build
+./build-release-pi.sh --native                # Force native compilation when on the device
+./build-release-pi.sh --sysroot /mnt/rpi-root # Cross-compile using a target sysroot
+
+# Build for Android
+./build-android-debug.sh
+./build-android-release.sh
 
 # Clean all build artifacts and delete the build/ directory
 ./clean.sh

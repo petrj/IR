@@ -44,9 +44,11 @@ else()
 endif()
 
 # Qt Creator / CMake debugging support
-set(CMAKE_AUTOMOC ON)
-set(CMAKE_AUTORCC ON)
-set(CMAKE_AUTOUIC ON)
+if(BUILD_GUI)
+    set(CMAKE_AUTOMOC ON)
+    set(CMAKE_AUTORCC ON)
+    set(CMAKE_AUTOUIC ON)
+endif()
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
 if(DEFINED ENV{QTDIR})
@@ -73,11 +75,22 @@ endif()
 find_package(Threads REQUIRED)
 
 # ----------------------------------------------------------------------------
-# 2. Qt 6 Dependency Check
+# 2. Qt 6 Dependency Check (Only required when GUI is enabled)
 # ----------------------------------------------------------------------------
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Quick QuickControls2 Network)
-if(COMMAND qt_policy)
-    qt_policy(SET QTP0001 NEW)
+if(BUILD_GUI)
+    find_package(Qt6 COMPONENTS Core Gui Quick QuickControls2 Network QUIET)
+    if(NOT Qt6_FOUND)
+        if(FORCE_BUILD_GUI)
+            find_package(Qt6 REQUIRED COMPONENTS Core Gui Quick QuickControls2 Network)
+        else()
+            message(STATUS "Qt6 (Quick/Controls2) not found; disabling BUILD_GUI. 'ir_gui' will be omitted.")
+            set(BUILD_GUI OFF CACHE BOOL "Build Qt QML GUI Application" FORCE)
+        endif()
+    else()
+        if(COMMAND qt_policy)
+            qt_policy(SET QTP0001 NEW)
+        endif()
+    endif()
 endif()
 
 # ----------------------------------------------------------------------------
@@ -90,11 +103,20 @@ endif()
 
 if(NOT LIBUSB_FOUND AND NOT TARGET PkgConfig::LIBUSB)
     if(BUILD_SERVER OR BUILD_TESTS)
+        if(CMAKE_CROSSCOMPILING)
+            set(INSTALL_PKG "libusb-1.0-0-dev:${CMAKE_SYSTEM_PROCESSOR}")
+            if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
+                set(INSTALL_PKG "libusb-1.0-0-dev:arm64")
+            endif()
+            set(INSTALL_CMD "sudo dpkg --add-architecture ${DEB_ARCH} && sudo apt update && sudo apt install ${INSTALL_PKG}")
+        else()
+            set(INSTALL_CMD "sudo apt install libusb-1.0-0-dev")
+        endif()
         message(FATAL_ERROR
             "\n======================================================================\n"
             "[BUILD ERROR] Missing dependency: libusb-1.0\n"
             "Please install the required Debian package:\n"
-            "  sudo apt install libusb-1.0-0-dev\n"
+            "  ${INSTALL_CMD}\n"
             "======================================================================\n"
         )
     else()
@@ -121,22 +143,41 @@ endif()
 # 5. HTTP Server Library (cpp-httplib) Dependency Check
 # ----------------------------------------------------------------------------
 if(BUILD_SERVER OR BUILD_TUI OR BUILD_TESTS)
-    find_package(httplib QUIET)
-    if(NOT httplib_FOUND)
-        if(PKG_CONFIG_FOUND)
-            pkg_check_modules(HTTPLIB IMPORTED_TARGET cpp-httplib)
-        endif()
-        if(TARGET PkgConfig::HTTPLIB)
-            add_library(httplib::httplib ALIAS PkgConfig::HTTPLIB)
-        else()
-            include(FetchContent)
-            message(STATUS "cpp-httplib not found; fetching via FetchContent...")
-            FetchContent_Declare(
-                httplib
-                GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
-                GIT_TAG v0.15.3
-            )
-            FetchContent_MakeAvailable(httplib)
+    if(CMAKE_CROSSCOMPILING)
+        # Prevent cpp-httplib from searching host paths for OpenSSL, Brotli, or ZLIB
+        set(HTTPLIB_USE_OPENSSL_IF_AVAILABLE OFF CACHE BOOL "" FORCE)
+        set(HTTPLIB_USE_ZLIB_IF_AVAILABLE OFF CACHE BOOL "" FORCE)
+        set(HTTPLIB_USE_BROTLI_IF_AVAILABLE OFF CACHE BOOL "" FORCE)
+        set(HTTPLIB_REQUIRE_OPENSSL OFF CACHE BOOL "" FORCE)
+        set(HTTPLIB_REQUIRE_ZLIB OFF CACHE BOOL "" FORCE)
+        set(HTTPLIB_REQUIRE_BROTLI OFF CACHE BOOL "" FORCE)
+
+        include(FetchContent)
+        message(STATUS "Cross-compiling: fetching standalone cpp-httplib via FetchContent...")
+        FetchContent_Declare(
+            httplib
+            GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
+            GIT_TAG v0.15.3
+        )
+        FetchContent_MakeAvailable(httplib)
+    else()
+        find_package(httplib QUIET)
+        if(NOT httplib_FOUND)
+            if(PKG_CONFIG_FOUND)
+                pkg_check_modules(HTTPLIB IMPORTED_TARGET cpp-httplib)
+            endif()
+            if(TARGET PkgConfig::HTTPLIB)
+                add_library(httplib::httplib ALIAS PkgConfig::HTTPLIB)
+            else()
+                include(FetchContent)
+                message(STATUS "cpp-httplib not found; fetching via FetchContent...")
+                FetchContent_Declare(
+                    httplib
+                    GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
+                    GIT_TAG v0.15.3
+                )
+                FetchContent_MakeAvailable(httplib)
+            endif()
         endif()
     endif()
 endif()

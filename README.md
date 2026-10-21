@@ -2,7 +2,7 @@
 
 A high-performance, cross-platform C++ / Qt 6 application for receiving, transmitting, and processing Infra-Red (IR) signals using USB transceiver hardware.
 
-This project is a lightweight, native C++ engine (`libusb`), providing an embedded HTTP REST API server (`ir_api_server`), a modern graphical interface (**QML**), and an interactive terminal / console test tool (**`ir_tui_test`**) that connects directly to the HTTP REST API.
+This project is a lightweight, native C++ engine (`libusb`), providing an embedded HTTP REST API server (`ir_api_server`), a modern graphical interface (**QML**), and an interactive terminal / console test tool (**`ir_tui`**) that connects directly to the HTTP REST API.
 
 ---
 
@@ -13,7 +13,7 @@ The system architecture decouples the frontends from the hardware drivers via an
 ```
 +-----------------------------------+     +---------------------------------+
 |    QML Graphical User Interface   |     |     Console Test Tool (TUI)     |
-|  (Windows / Linux / Android GUI)  |     |       (ir_tui_test / CLI)       |
+|  (Windows / Linux / Android GUI)  |     |       (ir_tui / CLI)       |
 +-----------------+-----------------+     +----------------+----------------+
                   |                                        |
                   |         HTTP REST API (JSON)           |

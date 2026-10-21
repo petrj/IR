@@ -426,4 +426,4 @@ curl -X POST http://localhost:8080/api/v1/send \
 
 ## 📄 License
 
-Distributed under the MIT License. See `LICENSE` for more information.
+Distributed under the [MIT License](LICENSE). See [`LICENSE`](LICENSE) for more information.

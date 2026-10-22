@@ -23,6 +23,18 @@ if(ANDROID)
     option(BUILD_TUI "Build console TUI executable" OFF)
     option(BUILD_TESTS "Build unit tests" OFF)
 
+    # On Android, BUILD_GUI is required (the mobile app)
+    set(FORCE_BUILD_GUI ON)
+
+    # Default Android ABI if not specified
+    if(NOT DEFINED ANDROID_ABI)
+        if(DEFINED CMAKE_ANDROID_ARCH_ABI)
+            set(ANDROID_ABI "${CMAKE_ANDROID_ARCH_ABI}" CACHE STRING "Android ABI")
+        else()
+            set(ANDROID_ABI "arm64-v8a" CACHE STRING "Android ABI")
+        endif()
+    endif()
+
     # Provide fallback if host Qt CMake files are invoked without Android macros
     if(NOT COMMAND qt6_android_apply_arch_suffix)
         macro(qt6_android_apply_arch_suffix target)

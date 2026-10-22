@@ -25,6 +25,14 @@ target_link_libraries(ir_gui PRIVATE
 
 # Android deployment and debugging configuration for Qt Creator
 if(ANDROID)
+    if(DEFINED ANDROID_ABI)
+        set_target_properties(ir_gui PROPERTIES QT_ANDROID_ABIS "${ANDROID_ABI}")
+    elseif(DEFINED CMAKE_ANDROID_ARCH_ABI)
+        set_target_properties(ir_gui PROPERTIES QT_ANDROID_ABIS "${CMAKE_ANDROID_ARCH_ABI}")
+    else()
+        set_target_properties(ir_gui PROPERTIES QT_ANDROID_ABIS "arm64-v8a")
+    endif()
+
     set_target_properties(ir_gui PROPERTIES
         QT_ANDROID_PACKAGE_NAME "org.ir.transceiver"
         QT_ANDROID_PACKAGE_VERSION_CODE 1

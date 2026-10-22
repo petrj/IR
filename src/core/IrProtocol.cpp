@@ -178,17 +178,29 @@ bool IrProtocol::decodeTiqiaaPayload(const std::vector<uint8_t>& payload, IrSign
         return false;
     }
 
-    // Locate 'D' marker
-    auto dIt = std::find(payload.begin(), payload.end(), static_cast<uint8_t>('D'));
-    if (dIt == payload.end()) {
+    // In Tiqiaa protocol, frame header is 'S', 'T', <cmd_id>, 'D'
+    // Search for 'D' preceded by 'S', 'T' first to avoid matching false 'D' (0x44) in payload data.
+    size_t dPos = std::string::npos;
+    for (size_t i = 0; i < payload.size(); ++i) {
+        if (payload[i] == 'D') {
+            if (i >= 3 && payload[i - 3] == 'S' && payload[i - 2] == 'T') {
+                dPos = i;
+                break;
+            }
+        }
+    }
+    // Fallback if 'ST <id>' prefix was already stripped (e.g. unit tests or raw payload slices)
+    if (dPos == std::string::npos) {
+        auto dIt = std::find(payload.begin(), payload.end(), static_cast<uint8_t>('D'));
+        if (dIt != payload.end()) {
+            dPos = std::distance(payload.begin(), dIt);
+        }
+    }
+
+    if (dPos == std::string::npos || dPos + 1 >= payload.size()) {
         if (verbose) {
             std::cout << "[IrProtocol] No 'D' marker found in payload\n";
         }
-        return false;
-    }
-
-    size_t dPos = std::distance(payload.begin(), dIt);
-    if (dPos + 1 >= payload.size()) {
         return false;
     }
 
@@ -258,6 +270,22 @@ bool IrProtocol::decodeTiqiaaPayload(const std::vector<uint8_t>& payload, IrSign
     if (pulses.size() < 4) {
         if (verbose) {
             std::cout << "[IrProtocol] Too few valid pulses (< 4)\n";
+        }
+        return false;
+    }
+
+    // Filter out ambient noise glitches:
+    // Real IR commands and NEC repeat frames have at least 4000 us (4 ms) total duration.
+    // Short ambient light bursts (from fluorescent lamps, PWM dimmers, or Pi power ripple)
+    // are typically 4-7 short pulses with total duration < 3500 us.
+    int totalDurationUs = 0;
+    for (int p : pulses) {
+        totalDurationUs += std::abs(p);
+    }
+    if (pulses.size() < 8 && totalDurationUs < 4000) {
+        if (verbose) {
+            std::cout << "[IrProtocol] Discarding short ambient noise burst ("
+                      << pulses.size() << " pulses, total " << totalDurationUs << " us)\n";
         }
         return false;
     }

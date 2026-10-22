@@ -149,6 +149,29 @@ void testTiqiaaPayloadEncodingAndDecoding() {
     auto encUnsanitizedFreq = ir::IrProtocol::encodeTiqiaaPayload(originalPulses, 0xFF);
     assert(!encUnsanitizedFreq.empty());
     assert(encUnsanitizedFreq[0] == 38);
+
+    // 5. Test ambient optical noise filter: short bursts (< 8 pulses & < 4000 us total) are rejected
+    std::vector<int> noisePulses = { 160, -320, 160, -160 }; // 4 pulses, 800 us total
+    auto encNoise = ir::IrProtocol::encodeTiqiaaPayload(noisePulses, 38);
+    std::vector<uint8_t> noiseFrame = { 'S', 'T', 1, 'D' };
+    noiseFrame.insert(noiseFrame.end(), encNoise.begin(), encNoise.end());
+    noiseFrame.push_back('E');
+    noiseFrame.push_back('N');
+    ir::IrSignal decodedNoiseSig;
+    bool noiseRejected = !ir::IrProtocol::decodeTiqiaaPayload(noiseFrame, decodedNoiseSig);
+    assert(noiseRejected);
+
+    // 6. Test genuine NEC repeat code (4 pulses, but total duration > 50000 us) is accepted
+    std::vector<int> necRepeatPulses = { 9000, -2250, 560, -40000 };
+    auto encNecRepeat = ir::IrProtocol::encodeTiqiaaPayload(necRepeatPulses, 38);
+    std::vector<uint8_t> necRepeatFrame = { 'S', 'T', 2, 'D' };
+    necRepeatFrame.insert(necRepeatFrame.end(), encNecRepeat.begin(), encNecRepeat.end());
+    necRepeatFrame.push_back('E');
+    necRepeatFrame.push_back('N');
+    ir::IrSignal decodedNecRepeatSig;
+    bool necRepeatAccepted = ir::IrProtocol::decodeTiqiaaPayload(necRepeatFrame, decodedNecRepeatSig);
+    assert(necRepeatAccepted);
+    assert(decodedNecRepeatSig.pulses.size() >= 4);
 }
 
 void testNecProtocolCodec() {

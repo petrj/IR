@@ -277,8 +277,16 @@ The driver communicates with the **Tiqiaa Tview USB IR Transceiver**:
 * **Vendor ID (VID):** `0x10C4` (Silicon Laboratories)
 * **Product ID (PID):** `0x8468`
 * **Interface:** `0`
-* **OUT Endpoint:** `0x01` (Host to Device; transfers fall back to interrupt if bulk returns pipe error)
-* **IN Endpoint:** `0x81` (Device to Host)
+* **Default Endpoints:** `0x01` (OUT) and `0x81` (IN)
+
+#### Dynamic Endpoint Auto-Discovery & Transfer Mode Detection
+Older implementations attempted USB bulk transfers by default and only fell back to interrupt transfers upon receiving specific pipe errors. On ARM Linux (e.g., Raspberry Pi xHCI or DWC host controllers), submitting a bulk URB to a HID interrupt endpoint causes the kernel to fail immediately with `-EINVAL` (`LIBUSB_ERROR_INVALID_PARAM`), preventing the fallback from executing.
+
+To guarantee seamless operation across x86 and ARM SBCs:
+1. **Runtime Auto-Discovery (`discoverEndpoints()`):** On `openDevice()`, the driver reads the active USB configuration descriptor to query the actual endpoint addresses, transfer types (`LIBUSB_TRANSFER_TYPE_INTERRUPT` vs. `LIBUSB_TRANSFER_TYPE_BULK`), and `wMaxPacketSize`.
+2. **Direct Transfer Execution:** The driver directly invokes `libusb_interrupt_transfer` (for standard CP2110 HID transceivers) or `libusb_bulk_transfer` (for CP2102/UART bridges) without guessing.
+3. **Endpoint Stall & Clear-Halt Recovery:** If an endpoint stalls or encounters a pipe error (`LIBUSB_ERROR_PIPE` = -9) or buffer overflow (`LIBUSB_ERROR_OVERFLOW` = -12), the driver automatically invokes `libusb_clear_halt()` on that endpoint to recover the USB stack without freezing.
+4. **Buffer Alignment:** Read buffers are padded to multiples of the endpoint's `wMaxPacketSize` (typically 64-byte multiples, e.g. 1024 bytes).
 
 ### Framing & Multi-Packet Fragmentation
 
@@ -342,6 +350,12 @@ Corrected:  [ +9000 µs , -4500 µs , +560 µs , -560 µs ... ]  <-- Restored st
 
 `IrProtocol::fixLeadingMark()` detects when `pulses[0] < 8000` while `abs(pulses[1])` is in the 3500–5500 µs window, and automatically restores the leader mark to standard 9000 µs.
 
+### Framing Validation & Ambient Noise Filtering
+
+During continuous background monitoring or single-shot captures, raw incoming USB data is filtered to prevent false trigger events:
+* **Frame Header Verification:** In the Tiqiaa protocol, IR data is framed by `'S', 'T', <cmd_id>, 'D' ... 'E', 'N'`. The decoder strictly verifies the presence of the `'S', 'T'` header before `'D'` so that random bytes matching ASCII `'D'` (`0x44` = 1088 µs pulse) in data streams or status replies are never misinterpreted as the start of an IR packet.
+* **Ambient Optical & Power Ripple Glitch Filter:** High-gain IR receiver diodes without hardware shielding can detect short optical noise bursts from fluorescent ballasts, PWM-driven LED dimmers, or Raspberry Pi 5V power rail ripple. Genuine IR commands and repeat codes span at least 4,000 µs (e.g. NEC repeat code is > 50,000 µs). Signals with fewer than 8 pulses and total duration under 4,000 µs are automatically discarded as ambient noise glitches.
+
 ---
 
 ## 💻 Platform Support & Setup
@@ -367,6 +381,23 @@ By default, Linux limits USB device access to the `root` user. To grant access t
 
 > [!NOTE]
 > `IrUsbTransceiver::openDevice()` automatically detaches any attached kernel driver (`libusb_detach_kernel_driver`) on Linux before claiming interface 0.
+
+### Raspberry Pi & ARM Single-Board Computers (Pi 3, 4, 5, Zero 2 W)
+
+When running on ARM Linux boards like the Raspberry Pi, consider the following hardware and kernel factors:
+
+1. **Use USB 2.0 Ports (Black Ports):**
+   * On Raspberry Pi 4 and 5, always plug the IR transceiver into a **USB 2.0 port (black)** instead of USB 3.0 (blue).
+   * The VIA VL805 USB 3.0 controller on Pi 4 is known to introduce split-transaction scheduling overhead and microsecond timing jitter on Full-Speed interrupt endpoints.
+2. **Power Rail Stability:**
+   * IR receiver modules draw current surges when powering internal demodulators. Weak or noisy power supplies cause 5V rail ripple, which couples directly into the photodiode preamp and causes spurious "unknown" pulses.
+   * Ensure your Raspberry Pi is powered by an official power supply, or isolate the transceiver with an externally powered USB 2.0 hub.
+3. **Diagnostic Logging:**
+   * Register a logging callback via `transceiver.setLogCallback(...)` or launch `ir_api_server` to view live endpoint auto-discovery logs:
+     ```text
+     [USB Driver] Discovered USB Endpoints: IN=0x81 (INTERRUPT, maxPacket=64B), OUT=0x01 (INTERRUPT, maxPacket=64B)
+     ```
+   * Any endpoint stalls or pipe errors are logged with automatic `libusb_clear_halt()` recovery messages.
 
 ### Windows (WinUSB)
 

@@ -666,6 +666,13 @@ bool IrUsbTransceiver::captureOnce(IrSignal& outSignal, float timeoutSeconds) {
         std::vector<uint8_t> payload;
         if (readPayload(payload, 800)) {
             if (IrProtocol::decodeTiqiaaPayload(payload, outSignal)) {
+                // Ignore repeat frames during single-shot button capture; wait for the full command frame
+                DecodedCode code;
+                if (IrProtocol::decodeNec(outSignal.pulses, code) && code.isRepeat) {
+                    log("Ignoring NEC repeat frame during capture; waiting for command frame...");
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                    continue;
+                }
                 captured = true;
                 break;
             }

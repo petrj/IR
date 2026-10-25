@@ -384,7 +384,8 @@ When running on ARM Linux boards (Raspberry Pi 3, 4, 5, Zero 2 W, Orange Pi, Roc
 * **Use USB 2.0 Ports (Black Ports):** On Raspberry Pi 4 and 5, connect the dongle to a **USB 2.0 port** rather than USB 3.0 (blue). The Pi 4's VIA VL805 USB 3.0 host controller has known timing and split-transaction jitter with full-speed USB interrupt endpoints.
 * **Power Rail Stability:** Power drops and 5V ripple from the Pi's switching regulator can cause low-cost IR demodulator circuits to trigger spurious noise pulses. Always use an official Raspberry Pi power supply or an externally powered USB 2.0 hub.
 * **Auto-Recovery & Endpoint Discovery:** The native driver automatically detects endpoint types (Interrupt vs. Bulk) at runtime and clears halted endpoints (`libusb_clear_halt`) upon pipe stalls or micro-delays on ARM.
-* **Ambient Optical Filtering:** Signals under 4,000 µs with fewer than 8 pulses are discarded as electrical ripple or ambient light noise, preventing phantom trigger activations.
+* **Ambient Optical Filtering:** High-gain IR receivers running at maximum AGC sensitivity in idle mode pick up optical hash from CFL lighting, screens, or 5V power ripple. A multi-stage noise rejection engine discards bursts with $< 350\ \mu\text{s}$ marks, disjoint bursts with $\ge 2$ silence gaps $> 8\ \text{ms}$, and bursts with $< 8\%$ mark duty cycle.
+* **Repeat Code Suppression on Capture:** During single-shot capture mode, standalone NEC repeat frames (`9000, -2250, 560`) are automatically filtered out, ensuring capture operations reliably wait for the complete 32-bit (68-pulse) command frame.
 
 
 ### Windows

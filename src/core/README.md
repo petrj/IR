@@ -352,9 +352,14 @@ Corrected:  [ +9000 µs , -4500 µs , +560 µs , -560 µs ... ]  <-- Restored st
 
 ### Framing Validation & Ambient Noise Filtering
 
-During continuous background monitoring or single-shot captures, raw incoming USB data is filtered to prevent false trigger events:
+During continuous background monitoring or single-shot captures, raw incoming USB data is filtered through a multi-stage noise rejection engine to eliminate false triggers from high-gain receiver AGC:
 * **Frame Header Verification:** In the Tiqiaa protocol, IR data is framed by `'S', 'T', <cmd_id>, 'D' ... 'E', 'N'`. The decoder strictly verifies the presence of the `'S', 'T'` header before `'D'` so that random bytes matching ASCII `'D'` (`0x44` = 1088 µs pulse) in data streams or status replies are never misinterpreted as the start of an IR packet.
-* **Ambient Optical & Power Ripple Glitch Filter:** High-gain IR receiver diodes without hardware shielding can detect short optical noise bursts from fluorescent ballasts, PWM-driven LED dimmers, or Raspberry Pi 5V power rail ripple. Genuine IR commands and repeat codes span at least 4,000 µs (e.g. NEC repeat code is > 50,000 µs). Signals with fewer than 8 pulses and total duration under 4,000 µs are automatically discarded as ambient noise glitches.
+* **Duration & Glitch Threshold:** Real IR commands and NEC repeat frames have at least 4,000 µs (4 ms) total duration. Short ambient light bursts (from fluorescent lamps, PWM dimmers, or Pi power ripple) with fewer than 8 pulses and total duration under 4,000 µs are automatically discarded.
+* **High-Frequency Optical Hash Filter:** Legitimate IR commands have marks $\ge 350\ \mu\text{s}$ (or leaders $\ge 1500\ \mu\text{s}$). Sequences where all marks are $< 350\ \mu\text{s}$ are identified as high-frequency electrical or optical hash and rejected.
+* **Multi-Gap Silence Rejection:** In any legitimate IR protocol, bits within a transmission are sent continuously with spaces $< 6,000\ \mu\text{s}$. A long pause ($> 8,000\ \mu\text{s}$) only occurs as the final trailing gap at the end of the frame. Any sequence containing 2 or more silence gaps $> 8,000\ \mu\text{s}$ (e.g. sporadic noise spikes separated by $10\dots 60\text{ ms}$ of silence) is automatically discarded as disjoint ambient noise.
+* **Mark-to-Space Duty Cycle Check:** In ambient optical noise, total mark duration is very small compared to the total elapsed time ($< 8\%$ mark duty cycle). Real IR transmissions have mark duty cycles between $15\%$ and $60\%$. Sequences with $< 8\%$ duty cycle and no leader mark $\ge 2,000\ \mu\text{s}$ are discarded.
+* **Dynamic Leader Scanning:** `IrProtocol::normalizeNec()` and `IrProtocol::decodeNec()` dynamically scan the incoming pulse stream to locate the genuine NEC leader ($9,000\ \mu\text{s}$ mark, $4,500\ \mu\text{s}$ space), making decoding immune to leading noise glitches that occur right before a button press.
+* **Capture Mode Repeat Code Filtering:** During single-shot capture mode (`IrUsbTransceiver::captureOnce`), standalone NEC repeat frames (`9000, -2250, 560`) are automatically ignored so that the capture loop continues waiting until the user's complete 32-bit (68-pulse) command frame arrives.
 
 ---
 

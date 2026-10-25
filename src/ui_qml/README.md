@@ -63,7 +63,7 @@ When saved:
 - In Edit mode, `AppController::updateSignal()` updates all properties in-place while preserving the signal's position and correctly managing RCD assignments.
 
 ### Capture via API
-The capture flow starts a REST `POST /api/v1/capture` request. While the request is active, the UI shows a capture popup and waits for a remote button press.
+The capture flow starts a REST `POST /api/v1/capture` request. While the request is active, the UI shows a capture popup and waits for a remote button press. The underlying `ir_core` engine automatically suppresses ambient optical noise glitches and standalone NEC repeat frames, ensuring that only genuine command transmissions are captured.
 
 When a valid signal arrives:
 

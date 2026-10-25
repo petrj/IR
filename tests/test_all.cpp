@@ -172,6 +172,45 @@ void testTiqiaaPayloadEncodingAndDecoding() {
     bool necRepeatAccepted = ir::IrProtocol::decodeTiqiaaPayload(necRepeatFrame, decodedNecRepeatSig);
     assert(necRepeatAccepted);
     assert(decodedNecRepeatSig.pulses.size() >= 4);
+
+    // 7. Test user's sporadic ambient optical noise bursts with multiple long silence gaps are discarded
+    std::vector<int> userAmbientNoise1 = {
+        240, -17472, 176, -11968, 240, -47424, 352, -39760, 432, -22336, 368, -18304, 224, -1136, 448, -36752, 560, -304
+    };
+    auto encUserNoise1 = ir::IrProtocol::encodeTiqiaaPayload(userAmbientNoise1, 38);
+    std::vector<uint8_t> userNoiseFrame1 = { 'S', 'T', 3, 'D' };
+    userNoiseFrame1.insert(userNoiseFrame1.end(), encUserNoise1.begin(), encUserNoise1.end());
+    userNoiseFrame1.push_back('E');
+    userNoiseFrame1.push_back('N');
+    ir::IrSignal decodedUserNoiseSig1;
+    bool userNoise1Rejected = !ir::IrProtocol::decodeTiqiaaPayload(userNoiseFrame1, decodedUserNoiseSig1);
+    assert(userNoise1Rejected);
+
+    // 8. Test user's genuine RCD NEC signal is normalized to standard 68 pulses and decoded correctly
+    std::vector<int> userRcdSignal = {
+        9000, -4500, 560, -560, 560, -560, 560, -560, 560, -560, 560, -560, 560, -560, 560, -560, 560, -560,
+        560, -1690, 560, -1690, 560, -1690, 560, -1690, 560, -560, 560, -1690, 560, -1690, 560, -1690,
+        560, -1690, 560, -1690, 560, -560, 560, -560, 560, -560, 560, -560, 560, -560, 560, -560,
+        560, -560, 560, -560, 560, -1690, 560, -1690, 560, -1690, 560, -1690, 560, -1690, 560, -1690,
+        560, -40000
+    };
+    auto encUserRcd = ir::IrProtocol::encodeTiqiaaPayload(userRcdSignal, 38);
+    std::vector<uint8_t> userRcdFrame = { 'S', 'T', 4, 'D' };
+    userRcdFrame.insert(userRcdFrame.end(), encUserRcd.begin(), encUserRcd.end());
+    userRcdFrame.push_back('E');
+    userRcdFrame.push_back('N');
+    ir::IrSignal decodedUserRcdSig;
+    bool userRcdAccepted = ir::IrProtocol::decodeTiqiaaPayload(userRcdFrame, decodedUserRcdSig);
+    assert(userRcdAccepted);
+    assert(decodedUserRcdSig.pulses.size() == 68);
+
+    ir::DecodedCode decodedUserRcdCode;
+    bool userRcdCodeOk = ir::IrProtocol::decodeNec(decodedUserRcdSig.pulses, decodedUserRcdCode);
+    assert(userRcdCodeOk);
+    assert(decodedUserRcdCode.rawValue == 0xFC03EF00);
+    assert(decodedUserRcdCode.address == 0xEF00);
+    assert(decodedUserRcdCode.command == 0x03);
+    assert(!decodedUserRcdCode.isRepeat);
 }
 
 void testNecProtocolCodec() {

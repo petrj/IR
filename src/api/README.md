@@ -260,6 +260,9 @@ Pops the oldest received signal from the internal thread-safe `RingBuffer`.
 
 Blocks the request until the user presses a remote control button or the specified timeout expires.
 
+> [!NOTE]
+> The capture pipeline automatically applies multi-stage ambient noise filtering (rejecting disjoint optical noise spikes and high-frequency hash) and skips standalone NEC repeat frames (`9000, -2250, 560`), guaranteeing that capture operations always wait for and return the complete, full-length command frame.
+
 #### Request Body *(optional)*
 ```json
 {

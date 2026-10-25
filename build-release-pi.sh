@@ -191,14 +191,33 @@ fi
 CMAKE_CMD="cmake"
 CMAKE_EXTRA_ARGS=()
 
+# Verify CMake is installed
+if ! command -v "${CMAKE_CMD}" &>/dev/null; then
+    echo -e "\n======================================================================"
+    echo "[ERROR] CMake build system '${CMAKE_CMD}' not found in PATH!"
+    echo "======================================================================"
+    echo "To install CMake on Raspberry Pi OS / Debian / Ubuntu, run:"
+    echo "  sudo apt update"
+    echo "  sudo apt install -y cmake"
+    echo ""
+    echo "For a complete headless build setup (compiler + libraries), run:"
+    echo "  sudo apt update && sudo apt install -y build-essential cmake libusb-1.0-0-dev"
+    echo "======================================================================"
+    exit 1
+fi
+
 if [ "${BUILD_MODE}" = "native" ]; then
     echo "[*] Detected Native Compilation on ${HOST_ARCH} device."
     CC="${CC:-gcc}"
     CXX="${CXX:-g++}"
 
     if ! command -v "${CXX}" &>/dev/null; then
-        echo -e "\n[ERROR] Native C++ compiler '${CXX}' not found!"
-        echo "Please install build tools: sudo apt install build-essential cmake"
+        echo -e "\n======================================================================"
+        echo "[ERROR] Native C++ compiler '${CXX}' not found!"
+        echo "======================================================================"
+        echo "Please install build tools:"
+        echo "  sudo apt update && sudo apt install -y build-essential cmake"
+        echo "======================================================================"
         exit 1
     fi
 else

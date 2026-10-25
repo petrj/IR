@@ -48,20 +48,19 @@ std::string DecodedCode::toString() const {
 
 void IrProtocol::fixLeadingMark(std::vector<int>& pulses, bool verbose) {
     constexpr int NEC_LEADER_MARK_US = 9000;
-    // Skip any leading spaces if present
-    size_t start = 0;
-    while (start < pulses.size() && pulses[start] <= 0) {
-        start++;
-    }
-
-    if (start + 1 < pulses.size() && pulses[start] > 0 && pulses[start + 1] < 0) {
-        int space = std::abs(pulses[start + 1]);
-        if (space >= 3000 && space <= 6000 && pulses[start] >= 1500 && pulses[start] < 8000) {
-            if (verbose) {
-                std::cout << "[IrProtocol] Correcting short AGC leading mark "
-                          << pulses[start] << " us -> " << NEC_LEADER_MARK_US << " us\n";
+    // Scan the first few pulses for an AGC-attenuated NEC leader mark
+    // (mark between 1500 and 8000 us followed by space between 3000 and 6000 us)
+    for (size_t i = 0; i + 1 < pulses.size() && i < 6; ++i) {
+        if (pulses[i] > 0 && pulses[i + 1] < 0) {
+            int space = std::abs(pulses[i + 1]);
+            if (space >= 3000 && space <= 6000 && pulses[i] >= 1500 && pulses[i] < 8000) {
+                if (verbose) {
+                    std::cout << "[IrProtocol] Correcting short AGC leading mark at index " << i << ": "
+                              << pulses[i] << " us -> " << NEC_LEADER_MARK_US << " us\n";
+                }
+                pulses[i] = NEC_LEADER_MARK_US;
+                break;
             }
-            pulses[start] = NEC_LEADER_MARK_US;
         }
     }
 }
@@ -71,31 +70,19 @@ bool IrProtocol::normalizeNec(std::vector<int>& pulses, bool verbose) {
         return false;
     }
 
-    size_t startIdx = 0;
-    while (startIdx < pulses.size() && pulses[startIdx] <= 0) {
-        startIdx++;
-    }
-    if (startIdx + 3 >= pulses.size()) {
-        return false;
-    }
-
-    if (startIdx + 4 < pulses.size() && pulses[startIdx] > 0 && pulses[startIdx] < 400 &&
-        pulses[startIdx + 1] < 0 && pulses[startIdx + 2] >= 6000) {
-        startIdx += 2;
-    }
-
-    int leaderMark = pulses[startIdx];
-    int leaderSpace = std::abs(pulses[startIdx + 1]);
-
-    if (leaderMark < 6500 || leaderMark > 11500) {
-        return false;
+    // Find the NEC leader mark (nominal 9000 us mark, 4500 us space)
+    size_t startIdx = std::string::npos;
+    for (size_t i = 0; i + 1 < pulses.size(); ++i) {
+        if (pulses[i] >= 6500 && pulses[i] <= 11500) {
+            int space = std::abs(pulses[i + 1]);
+            if (space >= 3000 && space <= 6000) {
+                startIdx = i;
+                break;
+            }
+        }
     }
 
-    if (leaderSpace < 3000 || leaderSpace > 6000) {
-        return false;
-    }
-
-    if (startIdx + 2 + 64 > pulses.size()) {
+    if (startIdx == std::string::npos || startIdx + 2 + 64 > pulses.size()) {
         return false;
     }
 
@@ -178,17 +165,29 @@ bool IrProtocol::decodeTiqiaaPayload(const std::vector<uint8_t>& payload, IrSign
         return false;
     }
 
-    // Locate 'D' marker
-    auto dIt = std::find(payload.begin(), payload.end(), static_cast<uint8_t>('D'));
-    if (dIt == payload.end()) {
+    // In Tiqiaa protocol, frame header is 'S', 'T', <cmd_id>, 'D'
+    // Search for 'D' preceded by 'S', 'T' first to avoid matching false 'D' (0x44) in payload data.
+    size_t dPos = std::string::npos;
+    for (size_t i = 0; i < payload.size(); ++i) {
+        if (payload[i] == 'D') {
+            if (i >= 3 && payload[i - 3] == 'S' && payload[i - 2] == 'T') {
+                dPos = i;
+                break;
+            }
+        }
+    }
+    // Fallback if 'ST <id>' prefix was already stripped (e.g. unit tests or raw payload slices)
+    if (dPos == std::string::npos) {
+        auto dIt = std::find(payload.begin(), payload.end(), static_cast<uint8_t>('D'));
+        if (dIt != payload.end()) {
+            dPos = std::distance(payload.begin(), dIt);
+        }
+    }
+
+    if (dPos == std::string::npos || dPos + 1 >= payload.size()) {
         if (verbose) {
             std::cout << "[IrProtocol] No 'D' marker found in payload\n";
         }
-        return false;
-    }
-
-    size_t dPos = std::distance(payload.begin(), dIt);
-    if (dPos + 1 >= payload.size()) {
         return false;
     }
 
@@ -262,8 +261,78 @@ bool IrProtocol::decodeTiqiaaPayload(const std::vector<uint8_t>& payload, IrSign
         return false;
     }
 
+    // Filter out ambient noise glitches:
+    // Real IR commands and NEC repeat frames have at least 4000 us (4 ms) total duration.
+    // Short ambient light bursts (from fluorescent lamps, PWM dimmers, or Pi power ripple)
+    // are typically 4-7 short pulses with total duration < 3500 us.
+    int totalDurationUs = 0;
+    int maxMark = 0;
+    int longGapsCount = 0;
+    for (int p : pulses) {
+        totalDurationUs += std::abs(p);
+        if (p > maxMark) {
+            maxMark = p;
+        }
+        if (p < -8000) {
+            longGapsCount++;
+        }
+    }
+
+    // 1. Minimum duration: Real IR commands span at least 4000 us.
+    if (pulses.size() < 8 && totalDurationUs < 4000) {
+        if (verbose) {
+            std::cout << "[IrProtocol] Discarding short ambient noise burst ("
+                      << pulses.size() << " pulses, total " << totalDurationUs << " us)\n";
+        }
+        return false;
+    }
+
+    // 2. High-frequency electrical/optical hash filter:
+    // Legitimate IR commands have marks >= 350 us (or leaders >= 1500 us).
+    if (maxMark < 350) {
+        if (verbose) {
+            std::cout << "[IrProtocol] Discarding optical hash (max mark "
+                      << maxMark << " us < 350 us)\n";
+        }
+        return false;
+    }
+
     fixLeadingMark(pulses, verbose);
-    if (normalizeNec(pulses, verbose)) {
+    bool isNec = normalizeNec(pulses, verbose);
+
+    // 3. Disjoint ambient noise bursts with multiple long silence gaps:
+    // In any legitimate IR protocol, bits within a transmission are sent continuously
+    // with spaces < 6000 us. A long gap (> 8000 us) only occurs as a trailing gap
+    // at the end of the frame.
+    // If a sequence contains 2 or more gaps > 8000 us and is not a valid NEC frame,
+    // it is disconnected noise glitches.
+    if (longGapsCount > 1 && !isNec) {
+        if (verbose) {
+            std::cout << "[IrProtocol] Discarding ambient noise with multiple long silence gaps ("
+                      << longGapsCount << " gaps > 8ms)\n";
+        }
+        return false;
+    }
+
+    // 4. Ambient noise mark-space duty cycle check:
+    // In ambient optical noise, total mark duration is very small compared to total duration
+    // (isolated blips separated by long silence, mark ratio < 8%).
+    // Real IR commands (like NEC, Sony, RC5, Raw) have mark duty cycle between 15% and 60%.
+    if (!isNec) {
+        int totalMarkUs = 0;
+        for (int p : pulses) {
+            if (p > 0) totalMarkUs += p;
+        }
+        if (totalDurationUs > 0 && (totalMarkUs * 100 / totalDurationUs) < 8 && maxMark < 2000) {
+            if (verbose) {
+                std::cout << "[IrProtocol] Discarding sporadic ambient noise (mark duty cycle "
+                          << (totalMarkUs * 100 / totalDurationUs) << "% < 8%)\n";
+            }
+            return false;
+        }
+    }
+
+    if (isNec) {
         frequency_khz = 38;
     }
 
@@ -313,33 +382,32 @@ bool IrProtocol::decodeNec(const std::vector<int>& pulses, DecodedCode& outCode)
         return false;
     }
 
-    // Find first active mark (skipping any leading spaces)
-    size_t startIdx = 0;
-    while (startIdx < pulses.size() && pulses[startIdx] <= 0) {
-        startIdx++;
+    // Find NEC leader mark (nominal 9000 us mark, 4500 us space for data or 2250 us for repeat)
+    size_t startIdx = std::string::npos;
+    for (size_t i = 0; i + 1 < pulses.size(); ++i) {
+        if (pulses[i] >= 6500 && pulses[i] <= 11500) {
+            int space = std::abs(pulses[i + 1]);
+            if ((space >= 3000 && space <= 6000) || (space >= 1500 && space <= 3000)) {
+                startIdx = i;
+                break;
+            }
+        }
     }
-    if (startIdx + 3 >= pulses.size()) {
+
+    if (startIdx == std::string::npos || startIdx + 1 >= pulses.size()) {
         return false;
     }
 
-    // Skip short noise glitch before leader mark if present
-    if (startIdx + 4 < pulses.size() && pulses[startIdx] > 0 && pulses[startIdx] < 400 &&
-        pulses[startIdx + 1] < 0 && pulses[startIdx + 2] >= 6000) {
-        startIdx += 2;
-    }
-
-    int leaderMark = pulses[startIdx];
     int leaderSpace = std::abs(pulses[startIdx + 1]);
-
-    // Check NEC Leader Mark (~9000 us nominal, allow 6500 to 11500 us)
-    if (leaderMark < 6500 || leaderMark > 11500) {
-        return false;
-    }
 
     // Check NEC Repeat frame (~2250 us space, allow 1500 to 3000 us)
     if (leaderSpace >= 1500 && leaderSpace <= 3000) {
         outCode.protocol = IrProtocolType::NEC;
         outCode.isRepeat = true;
+        outCode.rawValue = 0;
+        outCode.address = 0;
+        outCode.command = 0;
+        outCode.bitCount = 0;
         return true;
     }
 

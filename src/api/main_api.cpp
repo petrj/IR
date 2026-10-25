@@ -58,6 +58,9 @@ int main(int argc, char* argv[]) {
 
     // Initialize hardware transceiver
     auto transceiver = std::make_shared<ir::IrUsbTransceiver>(38);
+    transceiver->setLogCallback([](const std::string& msg) {
+        std::cout << "[USB Driver] " << msg << std::endl;
+    });
     bool usbConnected = transceiver->openDevice();
 
     if (usbConnected) {

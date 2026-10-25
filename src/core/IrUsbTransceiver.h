@@ -161,6 +161,7 @@ public:
 private:
     void setState(DeviceState state);
     void log(const std::string& msg);
+    void discoverEndpoints();
     void pollingLoop();
     bool transferOut(const std::vector<uint8_t>& data, unsigned int timeoutMs);
 
@@ -172,6 +173,14 @@ private:
     uint8_t m_cmdId{1};
     uint8_t m_usbPackCounter{1};
     uint8_t m_defaultFrequency{38};
+
+    // Auto-discovered endpoint parameters
+    uint8_t m_epIn{EP_IN};
+    uint8_t m_epOut{EP_OUT};
+    uint8_t m_epInType{3};  // 3 = LIBUSB_TRANSFER_TYPE_INTERRUPT
+    uint8_t m_epOutType{3}; // 3 = LIBUSB_TRANSFER_TYPE_INTERRUPT
+    uint16_t m_epInMaxPacketSize{64};
+    uint16_t m_epOutMaxPacketSize{64};
 
     DeviceInfo m_info;
 

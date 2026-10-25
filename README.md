@@ -2,7 +2,7 @@
 
 A high-performance, cross-platform C++ / Qt 6 application for receiving, transmitting, and processing Infra-Red (IR) signals using USB transceiver hardware.
 
-This project is a lightweight, native C++ engine (`libusb`), providing an embedded HTTP REST API server (`ir_api_server`), a modern graphical interface (**QML**), and an interactive terminal / console test tool (**`ir_tui`**) that connects directly to the HTTP REST API.
+This project is a lightweight, native C++ engine (`libusb`), providing an embedded HTTP REST API server (`ir_api_server`), a modern graphical interface (**QML**), and an interactive terminal / console test tool (**`ir_tui`**) that connects directly to the HTTP REST API. The headless suite (**`ir_api_server`** and **`ir_tui`**) runs natively and reliably under **Raspberry Pi** (Pi 5, 4, 3, Zero 2 W) and ARM Single-Board Computers with zero Qt or desktop environment dependencies.
 
 ---
 
@@ -13,7 +13,7 @@ The system architecture decouples the frontends from the hardware drivers via an
 ```
 +-----------------------------------+     +---------------------------------+
 |    QML Graphical User Interface   |     |     Console Test Tool (TUI)     |
-|  (Windows / Linux / Android GUI)  |     |       (ir_tui / CLI)       |
+|  (Windows / Linux / Android GUI)  |     |  (ir_tui / CLI / Raspberry Pi)  |
 +-----------------+-----------------+     +----------------+----------------+
                   |                                        |
                   |         HTTP REST API (JSON)           |
@@ -23,6 +23,7 @@ The system architecture decouples the frontends from the hardware drivers via an
                       +---------------------------------+
                       |     Embedded REST HTTP API      |
                       |  (ir_api_server / cpp-httplib)  |
+                      |   [Verified on Raspberry Pi]    |
                       +---------------+-----------------+
                                       |
                                       v
@@ -43,7 +44,8 @@ The system architecture decouples the frontends from the hardware drivers via an
 
 ## 🚀 Key Features
 
-* **Cross-Platform Support:** Native operation across **Linux**, **Windows**, and **Android**.
+* **Cross-Platform Support:** Native operation across **Raspberry Pi (Pi 5, 4, 3, Zero 2 W)**, **Linux (x86_64 & aarch64/armhf)**, **Windows**, and **Android**.
+* **Raspberry Pi & Headless Automation Ready:** The REST API server (`ir_api_server`) and interactive terminal console tool (`ir_tui`) run natively and out-of-the-box under **Raspberry Pi OS** (64-bit & 32-bit), making it ideal for headless Home Assistant hubs, background systemd daemons, or SSH automation without requiring Qt or a desktop GUI.
 * **Direct Hardware Access:** Ultra-low latency USB communication via native C++ `libusb-1.0`.
 * **Dual Frontend Architecture:**
   * **QML / Qt Quick UI:** Modern graphical interface optimized for desktop and mobile touchscreens, interacting with the transceiver via the Embedded REST HTTP API.
@@ -380,7 +382,11 @@ sudo udevadm trigger
 ```
 
 ### Raspberry Pi & ARM Single-Board Computers
+
+The headless application suite (**`ir_api_server`** and **`ir_tui`**) is fully verified and operates out-of-the-box on **Raspberry Pi OS** (both 64-bit `aarch64` and 32-bit `armhf`). Build natively on the device with `./build-release-pi.sh` without requiring any graphical display or Qt dependencies.
+
 When running on ARM Linux boards (Raspberry Pi 3, 4, 5, Zero 2 W, Orange Pi, Rock Pi):
+* **Verified Headless Operation:** The REST API server (`ir_api_server`) can run as an unattended background service, while `ir_tui` provides interactive terminal control and CLI automation directly over SSH or serial consoles.
 * **Use USB 2.0 Ports (Black Ports):** On Raspberry Pi 4 and 5, connect the dongle to a **USB 2.0 port** rather than USB 3.0 (blue). The Pi 4's VIA VL805 USB 3.0 host controller has known timing and split-transaction jitter with full-speed USB interrupt endpoints.
 * **Power Rail Stability:** Power drops and 5V ripple from the Pi's switching regulator can cause low-cost IR demodulator circuits to trigger spurious noise pulses. Always use an official Raspberry Pi power supply or an externally powered USB 2.0 hub.
 * **Auto-Recovery & Endpoint Discovery:** The native driver automatically detects endpoint types (Interrupt vs. Bulk) at runtime and clears halted endpoints (`libusb_clear_halt`) upon pipe stalls or micro-delays on ARM.

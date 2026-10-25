@@ -1,6 +1,6 @@
 # `ir_api` — Embedded HTTP REST API Server
 
-The `ir_api` module provides an embedded, cross-platform HTTP REST API server for the IR Transceiver application. Powered by modern C++17, [`cpp-httplib`](https://github.com/yhirose/cpp-httplib), and [`nlohmann/json`](https://github.com/nlohmann/json), it enables remote clients, home automation systems (Home Assistant, Node-RED), web dashboards, and the console test tool (`ir_tui`) to control hardware transmission, monitor connection states, read captured signals, and manage saved remote control profiles over standard HTTP JSON endpoints.
+The `ir_api` module provides an embedded, cross-platform HTTP REST API server for the IR Transceiver application. Powered by modern C++17, [`cpp-httplib`](https://github.com/yhirose/cpp-httplib), and [`nlohmann/json`](https://github.com/nlohmann/json), it enables remote clients, Raspberry Pi automation hubs, home automation systems (Home Assistant, Node-RED), web dashboards, and the console test tool (`ir_tui`) to control hardware transmission, monitor connection states, read captured signals, and manage saved remote control profiles over standard HTTP JSON endpoints. It is fully verified to run natively under Raspberry Pi OS without any graphical dependencies.
 
 ---
 

@@ -3,6 +3,7 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QFile>
+#include <QIcon>
 #include <QUrl>
 
 #include "AppController.h"
@@ -12,6 +13,16 @@ int main(int argc, char *argv[])
     QGuiApplication app(argc, argv);
     app.setApplicationName("IR Transceiver");
     app.setOrganizationName("IR");
+
+    QIcon appIcon;
+    if (QFile::exists(QStringLiteral(":/qt/qml/IR/assets/icon.png"))) {
+        appIcon = QIcon(QStringLiteral(":/qt/qml/IR/assets/icon.png"));
+    } else if (QFile::exists(QStringLiteral(IR_QML_SOURCE_DIR) + "/assets/icon.png")) {
+        appIcon = QIcon(QStringLiteral(IR_QML_SOURCE_DIR) + "/assets/icon.png");
+    }
+    if (!appIcon.isNull()) {
+        app.setWindowIcon(appIcon);
+    }
 
     AppController controller;
     QQmlApplicationEngine engine;

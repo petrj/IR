@@ -21,11 +21,26 @@ Rectangle {
         anchors.margins: 12
         spacing: 18
 
-        Text {
-            text: "IR"
-            font.pixelSize: 20
-            font.bold: true
-            color: "#e2e8f0"
+        Row {
+            spacing: 8
+            Layout.alignment: Qt.AlignVCenter
+
+            Image {
+                source: "assets/icon_64.png"
+                width: 28
+                height: 28
+                fillMode: Image.PreserveAspectFit
+                mipmap: true
+                anchors.verticalCenter: parent.verticalCenter
+            }
+
+            Text {
+                text: "IR"
+                font.pixelSize: 20
+                font.bold: true
+                color: "#e2e8f0"
+                anchors.verticalCenter: parent.verticalCenter
+            }
         }
 
         // Server state (server process reachable)

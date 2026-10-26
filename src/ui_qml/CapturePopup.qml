@@ -115,11 +115,18 @@ Popup {
         Row {
             spacing: 12
             anchors.horizontalCenter: parent.horizontalCenter
-            topPadding: 4
+            topPadding: 6
 
             Button {
                 visible: appController.captureReady
                 text: "Save Signal"
+                implicitHeight: 44
+                implicitWidth: 120
+                font.pixelSize: 14
+                font.bold: true
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: "Save captured IR signal to storage"
                 onClicked: {
                     var rcd = "";
                     if (!capturePopup.isNewRcdSelected && rcdCombo.currentText.length > 0) {
@@ -140,6 +147,12 @@ Popup {
 
             Button {
                 text: appController.captureReady ? "Discard" : "Cancel"
+                implicitHeight: 44
+                implicitWidth: 100
+                font.pixelSize: 14
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: appController.captureReady ? "Discard captured signal" : "Cancel capture"
                 onClicked: appController.cancelCapture()
             }
         }

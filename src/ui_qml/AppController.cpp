@@ -43,6 +43,7 @@ AppController::AppController(QObject *parent)
     , m_irDeviceConnected(false)
     , m_deviceState("Unknown")
     , m_usbStatusDetails("Loading USB status...")
+    , m_serverStatusDetails("Loading server status...")
     , m_apiHost()
     , m_serverRunning(false)
     , m_storage(getAppStoragePath())
@@ -57,6 +58,7 @@ AppController::AppController(QObject *parent)
     QUrl u(m_apiUrl);
     const QString hostPort = u.port() != -1 ? QString("%1:%2").arg(u.host()).arg(u.port()) : u.host();
     m_apiHost = hostPort;
+    updateServerStatusDetails();
     // fetch saved signals list periodically (or on demand)
     refreshSignals();
 }
@@ -129,6 +131,11 @@ QString AppController::usbStatusDetails() const
     return m_usbStatusDetails;
 }
 
+QString AppController::serverStatusDetails() const
+{
+    return m_serverStatusDetails;
+}
+
 QString AppController::apiHost() const
 {
     return m_apiHost;
@@ -184,6 +191,13 @@ void AppController::setApiUrl(const QString &url)
 
     m_apiUrl = url;
     emit apiUrlChanged();
+    QUrl u(m_apiUrl);
+    const QString hostPort = u.port() != -1 ? QString("%1:%2").arg(u.host()).arg(u.port()) : u.host();
+    if (m_apiHost != hostPort) {
+        m_apiHost = hostPort;
+        emit apiHostChanged();
+    }
+    updateServerStatusDetails();
     refreshStatus();
 }
 
@@ -232,6 +246,12 @@ void AppController::refreshUsbStatusDialog()
     refreshStatus();
     m_usbStatusDetails = "Loading USB status...";
     emit usbStatusDetailsChanged();
+}
+
+void AppController::refreshServerStatusDialog()
+{
+    refreshStatus();
+    updateServerStatusDetails();
 }
 
 void AppController::onReplyFinished(QNetworkReply *reply)
@@ -361,6 +381,26 @@ void AppController::onReplyFinished(QNetworkReply *reply)
     if (m_apiHost != hostPort) {
         m_apiHost = hostPort;
         emit apiHostChanged();
+    }
+    updateServerStatusDetails();
+}
+
+void AppController::updateServerStatusDetails()
+{
+    const QString host = m_apiHost.isEmpty() ? QStringLiteral("-") : m_apiHost;
+    const QString statusStr = m_serverRunning ? QStringLiteral("Running") : QStringLiteral("Stopped");
+    const QString detailsStr = m_status.isEmpty() ? statusStr : m_status;
+    const QString serverDetails = QString(
+        "Server Status: %1\nConfigured IP: %2\nAPI URL: %3\nDetails: %4"
+    )
+        .arg(statusStr)
+        .arg(host)
+        .arg(m_apiUrl.isEmpty() ? QStringLiteral("-") : m_apiUrl)
+        .arg(detailsStr);
+
+    if (m_serverStatusDetails != serverDetails) {
+        m_serverStatusDetails = serverDetails;
+        emit serverStatusDetailsChanged();
     }
 }
 
@@ -663,11 +703,13 @@ void AppController::startServer()
 #if defined(Q_OS_ANDROID)
     m_status = "API server cannot run locally on Android. Please configure network API host in settings.";
     emit statusChanged();
+    updateServerStatusDetails();
     return;
 #else
     if (m_serverRunning) {
         m_status = "API server already running";
         emit statusChanged();
+        updateServerStatusDetails();
         return;
     }
 
@@ -690,6 +732,7 @@ void AppController::startServer()
     if (executablePath.isEmpty()) {
         m_status = "API server executable not found";
         emit statusChanged();
+        updateServerStatusDetails();
         return;
     }
 
@@ -698,11 +741,13 @@ void AppController::startServer()
     if (!started) {
         m_status = "Failed to start API server";
         emit statusChanged();
+        updateServerStatusDetails();
         return;
     }
 
     m_status = "Starting API server...";
     emit statusChanged();
+    updateServerStatusDetails();
 #endif
 }
 

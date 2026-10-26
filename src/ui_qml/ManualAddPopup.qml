@@ -5,12 +5,13 @@ Popup {
     id: manualAddPopup
     modal: true
     focus: true
-    width: 440
-    height: 440
+    width: Math.min(460, parent ? (parent.width - 24) : 460)
+    height: Math.min(520, parent ? (parent.height - 24) : 520)
     closePolicy: Popup.CloseOnEscape
     anchors.centerIn: parent
     background: Rectangle { color: "#0b1220"; radius: 8; border.color: "#1f2937" }
 
+    property Dialog deleteDialog: null
     property bool editing: false
     property int editingIndex: -1
     property string selectedProtocol: "Raw"
@@ -73,125 +74,226 @@ Popup {
         open();
     }
 
-    Column {
+    Flickable {
         anchors.fill: parent
-        anchors.margins: 14
-        spacing: 8
+        anchors.margins: 16
+        contentWidth: width
+        contentHeight: formColumn.implicitHeight
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
 
-        Text {
-            text: manualAddPopup.editing ? "Edit Signal" : "Add Signal Manually"
-            color: "#e2e8f0"
-            font.pixelSize: 16
-            font.bold: true
-        }
-
-        TextField { id: manualName; placeholderText: "Signal Name"; width: parent.width }
-
-        Row {
+        Column {
+            id: formColumn
             width: parent.width
-            spacing: 8
+            spacing: 10
 
-            ComboBox {
-                id: manualRcdCombo
-                width: manualAddPopup.isNewRcdSelected ? 180 : parent.width
-                model: {
-                    var list = [];
-                    for (var i = 0; i < appController.rcdList.length; ++i) {
-                        list.push(appController.rcdList[i]);
-                    }
-                    list.push("+ New Remote Device...");
-                    return list;
-                }
+            Text {
+                text: manualAddPopup.editing ? "Signal Details" : "Add Signal Manually"
+                color: "#e2e8f0"
+                font.pixelSize: 18
+                font.bold: true
             }
 
             TextField {
-                id: manualNewRcd
-                visible: manualAddPopup.isNewRcdSelected
-                width: parent.width - manualRcdCombo.width - 8
-                placeholderText: "New Remote Device name"
+                id: manualName
+                placeholderText: "Signal Name"
+                width: parent.width
+                implicitHeight: 40
+                font.pixelSize: 14
             }
-        }
 
-        Row {
-            spacing: 8
-            Button {
-                text: "Raw"
-                checkable: true
-                checked: manualAddPopup.selectedProtocol === "Raw"
-                onClicked: manualAddPopup.selectedProtocol = "Raw"
-            }
-            Button {
-                text: "NEC"
-                checkable: true
-                checked: manualAddPopup.selectedProtocol === "NEC"
-                onClicked: manualAddPopup.selectedProtocol = "NEC"
-            }
             Row {
-                spacing: 6
-                anchors.verticalCenter: parent.verticalCenter
+                width: parent.width
+                spacing: 8
+
+                ComboBox {
+                    id: manualRcdCombo
+                    width: manualAddPopup.isNewRcdSelected ? 180 : parent.width
+                    implicitHeight: 40
+                    font.pixelSize: 13
+                    model: {
+                        var list = [];
+                        for (var i = 0; i < appController.rcdList.length; ++i) {
+                            list.push(appController.rcdList[i]);
+                        }
+                        list.push("+ New Remote Device...");
+                        return list;
+                    }
+                }
 
                 TextField {
-                    id: manualFreq
-                    placeholderText: "Frequency"
-                    text: "38"
-                    width: 100
+                    id: manualNewRcd
+                    visible: manualAddPopup.isNewRcdSelected
+                    width: parent.width - manualRcdCombo.width - 8
+                    implicitHeight: 40
+                    font.pixelSize: 14
+                    placeholderText: "New Remote Device name"
                 }
+            }
 
-                Text {
-                    text: "kHz"
-                    color: "#cbd5e1"
+            Row {
+                spacing: 10
+                Button {
+                    text: "Raw"
+                    checkable: true
+                    checked: manualAddPopup.selectedProtocol === "Raw"
+                    implicitHeight: 38
+                    implicitWidth: 80
                     font.pixelSize: 13
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 500
+                    ToolTip.text: "Select Raw pulse timing format"
+                    onClicked: manualAddPopup.selectedProtocol = "Raw"
+                }
+                Button {
+                    text: "NEC"
+                    checkable: true
+                    checked: manualAddPopup.selectedProtocol === "NEC"
+                    implicitHeight: 38
+                    implicitWidth: 80
+                    font.pixelSize: 13
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 500
+                    ToolTip.text: "Select NEC IR protocol"
+                    onClicked: manualAddPopup.selectedProtocol = "NEC"
+                }
+                Row {
+                    spacing: 6
                     anchors.verticalCenter: parent.verticalCenter
-                }
-            }
-        }
 
-        TextArea { id: manualRawHex; placeholderText: "rawHex (optional)"; height: 36; width: parent.width }
-        TextArea { id: manualPulses; placeholderText: "Pulses (comma-separated microseconds)"; height: 56; width: parent.width }
-        TextField { id: manualShellCommand; placeholderText: "Shell Command (optional, e.g. amixer set Master 5%+)"; width: parent.width }
-
-        Row {
-            spacing: 12
-            anchors.horizontalCenter: parent.horizontalCenter
-            topPadding: 4
-
-            Button {
-                text: "Save"
-                onClicked: {
-                    var freq = parseInt(manualFreq.text) || 38;
-                    var raw = manualRawHex.text.trim();
-                    var pulsesArr = [];
-                    if (manualPulses.text.trim().length > 0) {
-                        var parts = manualPulses.text.split(',');
-                        for (var i = 0; i < parts.length; ++i) {
-                            var v = parseInt(parts[i]);
-                            if (!isNaN(v)) pulsesArr.push(v);
-                        }
-                    }
-                    var proto = manualAddPopup.selectedProtocol || "Raw";
-
-                    var chosenRcd = "";
-                    if (!manualAddPopup.isNewRcdSelected && manualRcdCombo.currentText.length > 0) {
-                        chosenRcd = manualRcdCombo.currentText;
-                    } else {
-                        chosenRcd = manualNewRcd.text.trim();
-                        if (chosenRcd.length === 0) {
-                            chosenRcd = "Default Remote Device";
-                        }
+                    TextField {
+                        id: manualFreq
+                        placeholderText: "Frequency"
+                        text: "38"
+                        width: 90
+                        implicitHeight: 38
+                        font.pixelSize: 13
                     }
 
-                    var shellCmd = manualShellCommand.text.trim();
-
-                    if (manualAddPopup.editing) {
-                        appController.updateSignal(manualAddPopup.editingIndex, manualName.text, proto, freq, raw, pulsesArr, chosenRcd, shellCmd);
-                    } else {
-                        appController.addSignalManually(manualName.text, proto, freq, raw, pulsesArr, chosenRcd, shellCmd);
+                    Text {
+                        text: "kHz"
+                        color: "#cbd5e1"
+                        font.pixelSize: 13
+                        anchors.verticalCenter: parent.verticalCenter
                     }
-                    manualAddPopup.close();
                 }
             }
 
-            Button { text: "Cancel"; onClicked: manualAddPopup.close() }
+            TextArea {
+                id: manualRawHex
+                placeholderText: "rawHex (optional)"
+                implicitHeight: 40
+                width: parent.width
+                font.pixelSize: 13
+            }
+            TextArea {
+                id: manualPulses
+                placeholderText: "Pulses (comma-separated microseconds)"
+                implicitHeight: 56
+                width: parent.width
+                font.pixelSize: 13
+            }
+            TextField {
+                id: manualShellCommand
+                placeholderText: "Shell Command (optional, e.g. amixer set Master 5%+)"
+                implicitHeight: 40
+                width: parent.width
+                font.pixelSize: 13
+            }
+
+            Row {
+                spacing: 10
+                anchors.horizontalCenter: parent.horizontalCenter
+                topPadding: 6
+
+                Button {
+                    id: deleteSignalBtn
+                    visible: manualAddPopup.editing
+                    text: "🗑 Delete"
+                    implicitHeight: 42
+                    implicitWidth: 105
+                    font.pixelSize: 13
+                    font.bold: true
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 500
+                    ToolTip.text: "Delete this signal"
+                    contentItem: Text {
+                        text: deleteSignalBtn.text
+                        font: deleteSignalBtn.font
+                        color: "#fca5a5"
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    background: Rectangle {
+                        radius: 6
+                        color: "#450a0a"
+                        border.color: "#ef4444"
+                        border.width: 1
+                    }
+                    onClicked: {
+                        var idx = manualAddPopup.editingIndex;
+                        var name = manualName.text;
+                        manualAddPopup.close();
+                        if (manualAddPopup.deleteDialog) {
+                            manualAddPopup.deleteDialog.openForSignal(idx, name);
+                        }
+                    }
+                }
+
+                Button {
+                    text: "Cancel"
+                    implicitHeight: 42
+                    implicitWidth: 95
+                    font.pixelSize: 13
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 500
+                    ToolTip.text: "Cancel and close"
+                    onClicked: manualAddPopup.close()
+                }
+
+                Button {
+                    text: "Save"
+                    implicitHeight: 42
+                    implicitWidth: 95
+                    font.pixelSize: 13
+                    font.bold: true
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 500
+                    ToolTip.text: "Save IR signal"
+                    onClicked: {
+                        var freq = parseInt(manualFreq.text) || 38;
+                        var raw = manualRawHex.text.trim();
+                        var pulsesArr = [];
+                        if (manualPulses.text.trim().length > 0) {
+                            var parts = manualPulses.text.split(',');
+                            for (var i = 0; i < parts.length; ++i) {
+                                var v = parseInt(parts[i]);
+                                if (!isNaN(v)) pulsesArr.push(v);
+                            }
+                        }
+                        var proto = manualAddPopup.selectedProtocol || "Raw";
+
+                        var chosenRcd = "";
+                        if (!manualAddPopup.isNewRcdSelected && manualRcdCombo.currentText.length > 0) {
+                            chosenRcd = manualRcdCombo.currentText;
+                        } else {
+                            chosenRcd = manualNewRcd.text.trim();
+                            if (chosenRcd.length === 0) {
+                                chosenRcd = "Default Remote Device";
+                            }
+                        }
+
+                        var shellCmd = manualShellCommand.text.trim();
+
+                        if (manualAddPopup.editing) {
+                            appController.updateSignal(manualAddPopup.editingIndex, manualName.text, proto, freq, raw, pulsesArr, chosenRcd, shellCmd);
+                        } else {
+                            appController.addSignalManually(manualName.text, proto, freq, raw, pulsesArr, chosenRcd, shellCmd);
+                        }
+                        manualAddPopup.close();
+                    }
+                }
+            }
         }
     }
 }

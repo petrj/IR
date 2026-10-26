@@ -68,8 +68,12 @@ Popup {
 
             Button {
                 text: "✕"
-                Layout.preferredWidth: 28
-                Layout.preferredHeight: 28
+                Layout.preferredWidth: 38
+                Layout.preferredHeight: 38
+                font.pixelSize: 18
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: "Close dialog"
                 onClicked: triggerPopup.close()
             }
         }
@@ -243,8 +247,12 @@ Popup {
 
                         Button {
                             text: "Clear"
-                            Layout.preferredHeight: 22
-                            font.pixelSize: 10
+                            Layout.preferredHeight: 32
+                            Layout.preferredWidth: 64
+                            font.pixelSize: 12
+                            ToolTip.visible: hovered
+                            ToolTip.delay: 500
+                            ToolTip.text: "Clear activity log"
                             onClicked: appController.clearTriggerLog()
                         }
                     }
@@ -288,11 +296,14 @@ Popup {
 
             Button {
                 id: triggerActionBtn
-                Layout.preferredHeight: 36
-                Layout.preferredWidth: 170
+                Layout.preferredHeight: 44
+                Layout.preferredWidth: 195
                 text: appController.triggerModeActive ? "⏹ Stop Trigger Mode" : "▶ Start Trigger Mode"
                 font.bold: true
                 font.pixelSize: 13
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: appController.triggerModeActive ? "Stop listening for IR triggers" : "Start listening for IR triggers"
                 contentItem: Text {
                     text: triggerActionBtn.text
                     font: triggerActionBtn.font
@@ -312,9 +323,13 @@ Popup {
             Item { Layout.fillWidth: true }
 
             Button {
-                Layout.preferredHeight: 36
+                Layout.preferredHeight: 44
+                Layout.preferredWidth: 160
                 text: appController.triggerModeActive ? "Run in Background" : "Close"
                 font.pixelSize: 13
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: appController.triggerModeActive ? "Keep trigger mode running in background" : "Close dialog"
                 onClicked: triggerPopup.close()
             }
         }

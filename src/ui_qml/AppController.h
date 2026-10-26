@@ -26,6 +26,7 @@ class AppController : public QObject
     Q_PROPERTY(bool captureReady READ captureReady NOTIFY captureReadyChanged)
     Q_PROPERTY(QString deviceState READ deviceState NOTIFY deviceStateChanged)
     Q_PROPERTY(QString usbStatusDetails READ usbStatusDetails NOTIFY usbStatusDetailsChanged)
+    Q_PROPERTY(QString serverStatusDetails READ serverStatusDetails NOTIFY serverStatusDetailsChanged)
     Q_PROPERTY(QString captureName READ captureName WRITE setCaptureName NOTIFY captureNameChanged)
     Q_PROPERTY(QString captureRcdName READ captureRcdName WRITE setCaptureRcdName NOTIFY captureRcdNameChanged)
     Q_PROPERTY(QStringList rcdList READ rcdList NOTIFY rcdListChanged)
@@ -53,6 +54,7 @@ public:
     bool irDeviceConnected() const;
     QString deviceState() const;
     QString usbStatusDetails() const;
+    QString serverStatusDetails() const;
     QString apiHost() const;
     bool serverRunning() const;
     QVariantList savedSignals() const;
@@ -79,6 +81,7 @@ public slots:
     Q_INVOKABLE void startServer();
     Q_INVOKABLE void transmitSavedSignal(int index);
     Q_INVOKABLE void refreshUsbStatusDialog();
+    Q_INVOKABLE void refreshServerStatusDialog();
     Q_INVOKABLE void saveCapturedSignal(const QString &rcdName = QString(), const QString &signalName = QString(), const QString &shellCommand = QString());
     Q_INVOKABLE void startTriggerMode();
     Q_INVOKABLE void stopTriggerMode();
@@ -96,6 +99,7 @@ signals:
     void captureReadyChanged();
     void deviceStateChanged();
     void usbStatusDetailsChanged();
+    void serverStatusDetailsChanged();
     void apiHostChanged();
     void serverRunningChanged();
     void savedSignalsChanged();
@@ -133,10 +137,12 @@ private:
     bool m_irDeviceConnected;
     QString m_deviceState;
     QString m_usbStatusDetails;
+    QString m_serverStatusDetails;
     QString m_apiHost;
     bool m_serverRunning;
     QVariantList m_signals;
     ir::SignalStorage m_storage;
+    void updateServerStatusDetails();
 
     bool m_triggerModeActive{false};
     int m_armedTriggerCount{0};

@@ -217,12 +217,31 @@ Popup {
                     ToolTip.visible: hovered
                     ToolTip.delay: 500
                     ToolTip.text: "Delete this signal"
-                    contentItem: Text {
-                        text: deleteSignalBtn.text
-                        font: deleteSignalBtn.font
-                        color: "#fca5a5"
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
+                    contentItem: Row {
+                        spacing: 6
+                        anchors.centerIn: parent
+                        Canvas {
+                            width: 14
+                            height: 14
+                            anchors.verticalCenter: parent.verticalCenter
+                            onPaint: {
+                                var ctx = getContext("2d");
+                                ctx.strokeStyle = "#fca5a5";
+                                ctx.lineWidth = 1.5;
+                                ctx.lineCap = "round";
+                                ctx.beginPath();
+                                ctx.moveTo(2, 3); ctx.lineTo(12, 3);
+                                ctx.moveTo(5, 1.5); ctx.lineTo(9, 1.5);
+                                ctx.moveTo(3.5, 4); ctx.lineTo(4.5, 12.5); ctx.lineTo(9.5, 12.5); ctx.lineTo(10.5, 4);
+                                ctx.stroke();
+                            }
+                        }
+                        Text {
+                            text: "Delete"
+                            font: deleteSignalBtn.font
+                            color: "#fca5a5"
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
                     }
                     background: Rectangle {
                         radius: 6

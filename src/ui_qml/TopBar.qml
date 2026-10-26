@@ -18,8 +18,8 @@ Rectangle {
 
     RowLayout {
         anchors.fill: parent
-        anchors.margins: 12
-        spacing: 18
+        anchors.margins: root.width < 600 ? 8 : 12
+        spacing: root.width < 600 ? 8 : 18
 
         Row {
             spacing: 8
@@ -64,9 +64,9 @@ Rectangle {
                 }
 
                 Text {
-                    text: "Server: " + (appController.serverRunning ? "Running" : "Stopped")
+                    text: root.width < 500 ? (appController.serverRunning ? "Server: OK" : "Server: Off") : ("Server: " + (appController.serverRunning ? "Running" : "Stopped"))
                     color: appController.serverRunning ? "#86efac" : "#fca5a5"
-                    font.pixelSize: 14
+                    font.pixelSize: root.width < 500 ? 12 : 14
                 }
             }
 
@@ -146,9 +146,9 @@ Rectangle {
                 }
 
                 Text {
-                    text: "USB IR: " + (appController.irDeviceConnected ? "Connected" : "Disconnected")
+                    text: root.width < 500 ? (appController.irDeviceConnected ? "USB: OK" : "USB: Off") : ("USB IR: " + (appController.irDeviceConnected ? "Connected" : "Disconnected"))
                     color: appController.irDeviceConnected ? "#86efac" : "#fca5a5"
-                    font.pixelSize: 14
+                    font.pixelSize: root.width < 500 ? 12 : 14
                 }
             }
 

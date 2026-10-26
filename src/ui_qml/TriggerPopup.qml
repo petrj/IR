@@ -66,14 +66,11 @@ Popup {
 
             Item { Layout.fillWidth: true }
 
-            Button {
-                text: "✕"
-                Layout.preferredWidth: 38
-                Layout.preferredHeight: 38
-                font.pixelSize: 18
-                ToolTip.visible: hovered
-                ToolTip.delay: 500
-                ToolTip.text: "Close dialog"
+            IconButton {
+                iconType: "close"
+                buttonWidth: 38
+                buttonHeight: 38
+                tooltipText: "Close dialog"
                 onClicked: triggerPopup.close()
             }
         }

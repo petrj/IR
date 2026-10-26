@@ -4,8 +4,9 @@ import QtQuick.Layouts
 
 Window {
     id: root
-    width: 920
-    height: 620
+    width: (Qt.platform.os === "android") ? Screen.width : 920
+    height: (Qt.platform.os === "android") ? Screen.height : 620
+    visibility: (Qt.platform.os === "android") ? Window.Maximized : Window.AutomaticVisibility
     visible: true
     title: "IR Transceiver"
     color: "#0f172a"
@@ -13,123 +14,154 @@ Window {
     property int currentDeleteIndex: -1
     property string currentDeleteName: ""
 
+    Connections {
+        target: Screen
+        function onWidthChanged() {
+            if (Qt.platform.os === "android") {
+                root.width = Screen.width;
+                root.requestUpdate();
+            }
+        }
+        function onHeightChanged() {
+            if (Qt.platform.os === "android") {
+                root.height = Screen.height;
+                root.requestUpdate();
+            }
+        }
+        function onPrimaryOrientationChanged() {
+            if (Qt.platform.os === "android") {
+                root.width = Screen.width;
+                root.height = Screen.height;
+                root.requestUpdate();
+            }
+        }
+    }
+
     // Top docked header bar (moved to TopBar.qml)
     TopBar { id: topBar; serverStatusDialog: serverStatusDialog; startServerDialog: serverStatusDialog; usbStatusDialog: usbStatusDialog; triggerPopup: triggerPopup }
 
     // Main content below the top bar
-    Column {
+    Item {
+        id: mainContent
         anchors.top: topBar.bottom
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
-        anchors.margins: 16
-        spacing: 12
+        anchors.margins: 12
 
         // Saved signals list
         Rectangle {
-            width: parent.width
-            height: parent.height - 16
+            anchors.fill: parent
             color: "#071127"
             radius: 10
             border.color: "#0b1220"
             border.width: 1
 
-            Column {
+            Item {
                 anchors.fill: parent
                 anchors.margins: 12
-                spacing: 10
 
-                Row {
-                    id: headerRow
+                Column {
+                    id: headerSection
+                    anchors.top: parent.top
+                    anchors.left: parent.left
+                    anchors.right: parent.right
                     spacing: 10
-                    Text {
-                        text: "Saved Signals"
-                        color: "#e2e8f0"
-                        font.pixelSize: 16
-                        font.bold: true
-                        anchors.verticalCenter: parent.verticalCenter
-                    }
-                    Button {
-                        text: "↻"
-                        width: 42
-                        height: 38
-                        font.pixelSize: 18
-                        ToolTip.visible: hovered
-                        ToolTip.delay: 500
-                        ToolTip.text: "Refresh signals list"
-                        onClicked: appController.refreshSignals()
-                    }
-                    Button {
-                        text: "+"
-                        width: 42
-                        height: 38
-                        font.pixelSize: 22
-                        ToolTip.visible: hovered
-                        ToolTip.delay: 500
-                        ToolTip.text: "Add signal manually"
-                        onClicked: manualAddPopup.openForNew()
-                    }
-                    Button {
-                        text: "📡"
-                        width: 42
-                        height: 38
-                        font.pixelSize: 18
-                        ToolTip.visible: hovered
-                        ToolTip.delay: 500
-                        ToolTip.text: "Capture IR signal from transceiver"
-                        onClicked: appController.startCapture()
+
+                    // Top row: Title and action buttons
+                    Row {
+                        id: headerRow
+                        width: parent.width
+                        spacing: 8
+
+                        Text {
+                            text: "Saved Signals"
+                            color: "#e2e8f0"
+                            font.pixelSize: 16
+                            font.bold: true
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+
+                        Item {
+                            // Spacer to push action buttons to the right when space permits
+                            width: Math.max(8, headerRow.width - 110 - (42 * 4 + 8 * 4))
+                            height: 1
+                        }
+
+                        IconButton {
+                            iconType: "refresh"
+                            buttonWidth: 42
+                            buttonHeight: 38
+                            tooltipText: "Refresh signals list"
+                            onClicked: appController.refreshSignals()
+                        }
+                        IconButton {
+                            iconType: "add"
+                            buttonWidth: 42
+                            buttonHeight: 38
+                            tooltipText: "Add signal manually"
+                            onClicked: manualAddPopup.openForNew()
+                        }
+                        IconButton {
+                            iconType: "capture"
+                            buttonWidth: 42
+                            buttonHeight: 38
+                            tooltipText: "Capture IR signal from transceiver"
+                            onClicked: appController.startCapture()
+                        }
+                        IconButton {
+                            id: triggerModeBtn
+                            iconType: "trigger"
+                            buttonWidth: 42
+                            buttonHeight: 38
+                            active: appController.triggerModeActive
+                            tooltipText: appController.triggerModeActive ?
+                                "Trigger Active (" + appController.armedTriggerCount + ") - click to configure" :
+                                "Trigger Mode - click to configure"
+                            onClicked: triggerPopup.open()
+                        }
                     }
 
-                    Button {
-                        id: triggerModeBtn
-                        text: appController.triggerModeActive ? "⚡ Trigger Active" : "⚡ Trigger Mode"
-                        height: 38
-                        font.pixelSize: 13
-                        font.bold: true
-                        ToolTip.visible: hovered
-                        ToolTip.delay: 500
-                        ToolTip.text: "Configure trigger mode and automated actions"
-                        contentItem: Text {
-                            text: triggerModeBtn.text
-                            font: triggerModeBtn.font
-                            color: appController.triggerModeActive ? "#38bdf8" : "#cbd5e1"
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                            leftPadding: 10
-                            rightPadding: 10
-                        }
-                        background: Rectangle {
-                            radius: 6
-                            color: appController.triggerModeActive ? "#0c4a6e" : "#1e293b"
-                            border.color: appController.triggerModeActive ? "#38bdf8" : "#475569"
-                            border.width: 1
-                        }
-                        onClicked: triggerPopup.open()
-                    }
+                    // Device filter placed UNDER the buttons
+                    Row {
+                        id: filterRow
+                        width: parent.width
+                        spacing: 8
 
-                    ComboBox {
-                        id: deviceFilterCombo
-                        width: 180
-                        height: 38
-                        font.pixelSize: 13
-                        model: {
-                            var m = ["All Devices"];
-                            for (var i = 0; i < appController.rcdList.length; ++i) {
-                                m.push(appController.rcdList[i]);
+                        Text {
+                            text: "Device filter:"
+                            color: "#94a3b8"
+                            font.pixelSize: 13
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+
+                        ComboBox {
+                            id: deviceFilterCombo
+                            width: Math.max(160, filterRow.width - 95)
+                            height: 38
+                            font.pixelSize: 13
+                            model: {
+                                var m = ["All Devices"];
+                                for (var i = 0; i < appController.rcdList.length; ++i) {
+                                    m.push(appController.rcdList[i]);
+                                }
+                                return m;
                             }
-                            return m;
-                        }
-                        onCurrentTextChanged: {
-                            appController.selectedDeviceFilter = currentText;
+                            onCurrentTextChanged: {
+                                appController.selectedDeviceFilter = currentText;
+                            }
                         }
                     }
                 }
 
                 ListView {
                     id: signalList
+                    anchors.top: headerSection.bottom
+                    anchors.topMargin: 10
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
                     model: appController.savedSignals
-                    width: parent.width
-                    height: parent.height - headerRow.height - 18
                     clip: true
                     spacing: 8
                     boundsBehavior: Flickable.StopAtBounds
@@ -166,24 +198,18 @@ Window {
                             anchors.verticalCenter: parent.verticalCenter
                             spacing: 10
 
-                            Button {
-                                text: "✎"
-                                width: 44
-                                height: 42
-                                font.pixelSize: 18
-                                ToolTip.visible: hovered
-                                ToolTip.delay: 500
-                                ToolTip.text: "View signal details / edit"
+                            IconButton {
+                                iconType: "edit"
+                                buttonWidth: 44
+                                buttonHeight: 42
+                                tooltipText: "View signal details / edit"
                                 onClicked: manualAddPopup.openForEdit(modelData.index)
                             }
-                            Button {
-                                text: "➤"
-                                width: 48
-                                height: 42
-                                font.pixelSize: 20
-                                ToolTip.visible: hovered
-                                ToolTip.delay: 500
-                                ToolTip.text: "Transmit IR signal"
+                            IconButton {
+                                iconType: "transmit"
+                                buttonWidth: 48
+                                buttonHeight: 42
+                                tooltipText: "Transmit IR signal"
                                 onClicked: appController.transmitSavedSignal(modelData.index)
                             }
                         }

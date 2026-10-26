@@ -4,15 +4,23 @@
 #include <QQmlContext>
 #include <QFile>
 #include <QIcon>
+#include <QQuickStyle>
+#include <QQuickWindow>
+#include <QScreen>
 #include <QUrl>
 
 #include "AppController.h"
 
 int main(int argc, char *argv[])
 {
+    qputenv("QT_QUICK_CONTROLS_STYLE", "Material");
+    qputenv("QT_QUICK_CONTROLS_MATERIAL_THEME", "Dark");
+
     QGuiApplication app(argc, argv);
     app.setApplicationName("IR Transceiver");
     app.setOrganizationName("IR");
+
+    QQuickStyle::setStyle("Material");
 
     QIcon appIcon;
     if (QFile::exists(QStringLiteral(":/qt/qml/IR/assets/icon.png"))) {
@@ -53,6 +61,31 @@ int main(int argc, char *argv[])
         [qmlUrl](QObject *obj, const QUrl &url) {
             if (!obj && url == qmlUrl) {
                 qCritical() << "Failed to load QML file:" << qmlUrl.toString();
+            } else if (auto *window = qobject_cast<QQuickWindow*>(obj)) {
+#if defined(Q_OS_ANDROID)
+                window->showMaximized();
+                auto syncGeometry = [window]() {
+                    if (auto *screen = window->screen()) {
+                        const QRect avail = screen->availableGeometry();
+                        if (window->geometry() != avail) {
+                            window->setGeometry(avail);
+                        }
+                        window->requestUpdate();
+                    }
+                };
+                if (auto *screen = window->screen()) {
+                    QObject::connect(screen, &QScreen::geometryChanged, window, syncGeometry);
+                    QObject::connect(screen, &QScreen::orientationChanged, window, syncGeometry);
+                }
+                QObject::connect(qApp, &QGuiApplication::primaryScreenChanged, window, [window, syncGeometry](QScreen *newScreen) {
+                    if (newScreen) {
+                        QObject::connect(newScreen, &QScreen::geometryChanged, window, syncGeometry);
+                        QObject::connect(newScreen, &QScreen::orientationChanged, window, syncGeometry);
+                        syncGeometry();
+                    }
+                });
+                syncGeometry();
+#endif
             }
         },
         Qt::QueuedConnection);

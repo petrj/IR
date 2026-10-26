@@ -59,11 +59,19 @@ qt_add_qml_module(ir_gui
         ManualAddPopup.qml
         CapturePopup.qml
         TriggerPopup.qml
+        IconButton.qml
     RESOURCES
+        qtquickcontrols2.conf
         assets/icon.png
         assets/icon_256.png
         assets/icon_128.png
         assets/icon_64.png
+)
+
+qt_add_resources(ir_gui "qtquickcontrols_conf"
+    PREFIX "/"
+    FILES
+        qtquickcontrols2.conf
 )
 
 

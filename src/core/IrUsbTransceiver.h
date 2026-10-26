@@ -3,11 +3,18 @@
 #include "IrProtocol.h"
 #include "RingBuffer.h"
 
-#if defined(IR_HAS_LIBUSB) && (IR_HAS_LIBUSB == 0)
+#if (defined(IR_HAS_LIBUSB) && (IR_HAS_LIBUSB == 0)) || defined(ANDROID) || defined(__ANDROID__)
 struct libusb_context;
 struct libusb_device_handle;
 #else
+#if __has_include(<libusb-1.0/libusb.h>)
 #include <libusb-1.0/libusb.h>
+#elif __has_include(<libusb.h>)
+#include <libusb.h>
+#else
+struct libusb_context;
+struct libusb_device_handle;
+#endif
 #endif
 #include <string>
 #include <vector>

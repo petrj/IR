@@ -8,7 +8,7 @@ set(CORE_SOURCES
     SignalStorage.cpp
 )
 
-if(TARGET PkgConfig::LIBUSB OR LIBUSB_FOUND)
+if((TARGET PkgConfig::LIBUSB OR LIBUSB_FOUND) AND NOT ANDROID)
     list(APPEND CORE_SOURCES
         IrUsbTransceiver.h
         IrUsbTransceiver.cpp
@@ -27,10 +27,10 @@ target_link_libraries(ir_core PUBLIC
     nlohmann_json::nlohmann_json
 )
 
-if(TARGET PkgConfig::LIBUSB)
+if(TARGET PkgConfig::LIBUSB AND NOT ANDROID)
     target_link_libraries(ir_core PUBLIC PkgConfig::LIBUSB)
     target_compile_definitions(ir_core PUBLIC IR_HAS_LIBUSB=1)
-elseif(LIBUSB_FOUND)
+elseif(LIBUSB_FOUND AND NOT ANDROID)
     target_link_libraries(ir_core PUBLIC ${LIBUSB_LIBRARIES})
     target_include_directories(ir_core PUBLIC ${LIBUSB_INCLUDE_DIRS})
     target_compile_definitions(ir_core PUBLIC IR_HAS_LIBUSB=1)

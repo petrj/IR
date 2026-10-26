@@ -1,5 +1,8 @@
 #include "AppController.h"
 
+#include <sstream>
+#include <iomanip>
+
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>

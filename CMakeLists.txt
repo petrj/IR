@@ -108,9 +108,14 @@ endif()
 # ----------------------------------------------------------------------------
 # 3. PkgConfig & libusb-1.0 Dependency Check
 # ----------------------------------------------------------------------------
-find_package(PkgConfig QUIET)
-if(PKG_CONFIG_FOUND)
-    pkg_check_modules(LIBUSB IMPORTED_TARGET libusb-1.0)
+if(NOT ANDROID)
+    find_package(PkgConfig QUIET)
+    if(PKG_CONFIG_FOUND)
+        pkg_check_modules(LIBUSB IMPORTED_TARGET libusb-1.0)
+    endif()
+else()
+    # On Android, USB hardware driver is disabled (GUI connects via network REST API)
+    set(LIBUSB_FOUND FALSE CACHE BOOL "Disable libusb on Android" FORCE)
 endif()
 
 if(NOT LIBUSB_FOUND AND NOT TARGET PkgConfig::LIBUSB)

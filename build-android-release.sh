@@ -58,7 +58,7 @@ if [ -z "${ANDROID_PLATFORM}" ]; then
     if [ -n "${MAX_NDK_API}" ]; then
         ANDROID_PLATFORM="android-${MAX_NDK_API}"
     else
-        ANDROID_PLATFORM="android-35"
+        ANDROID_PLATFORM="android-34"
     fi
 fi
 
@@ -106,6 +106,19 @@ else
     if [ -n "${QT_ROOT}" ]; then
         CMAKE_EXTRA_ARGS+=("-DCMAKE_PREFIX_PATH=${QT_ROOT}")
     fi
+fi
+
+if [ -z "${QT_HOST_PATH}" ] && [ -n "${QT_ROOT}" ]; then
+    QT_VERSION_DIR="$(dirname "${QT_ROOT}")"
+    for host_candidate in "${QT_VERSION_DIR}/gcc_64" "${QT_VERSION_DIR}/host" "/usr"; do
+        if [ -d "${host_candidate}" ]; then
+            QT_HOST_PATH="${host_candidate}"
+            break
+        fi
+    done
+fi
+if [ -n "${QT_HOST_PATH}" ]; then
+    CMAKE_EXTRA_ARGS+=("-DQT_HOST_PATH=${QT_HOST_PATH}")
 fi
 
 echo "========================================================"

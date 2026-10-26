@@ -1,4 +1,63 @@
 #include "IrUsbTransceiver.h"
+
+#if (defined(IR_HAS_LIBUSB) && (IR_HAS_LIBUSB == 0)) || defined(ANDROID) || defined(__ANDROID__)
+
+namespace ir {
+
+IrUsbTransceiver::IrUsbTransceiver(uint8_t defaultFrequency)
+    : m_defaultFrequency(defaultFrequency) {
+    m_info.defaultFrequency = defaultFrequency;
+}
+
+IrUsbTransceiver::~IrUsbTransceiver() = default;
+
+void IrUsbTransceiver::log(const std::string& msg) {
+    if (m_onLog) {
+        m_onLog(msg);
+    }
+}
+
+void IrUsbTransceiver::setState(DeviceState state) {
+    if (m_state != state) {
+        m_state = state;
+        if (m_onStateChanged) {
+            m_onStateChanged(m_state);
+        }
+    }
+}
+
+bool IrUsbTransceiver::openDevice() { return false; }
+bool IrUsbTransceiver::openFromSysDevice(intptr_t) { return false; }
+void IrUsbTransceiver::closeDevice() {}
+bool IrUsbTransceiver::isConnected() const { return false; }
+DeviceState IrUsbTransceiver::getState() const { return m_state; }
+DeviceInfo IrUsbTransceiver::getDeviceInfo() const { return m_info; }
+bool IrUsbTransceiver::transferOut(const std::vector<uint8_t>&, unsigned int) { return false; }
+bool IrUsbTransceiver::sendBulk(const std::vector<uint8_t>&) { return false; }
+bool IrUsbTransceiver::sendCommand(char, const std::vector<uint8_t>&) { return false; }
+bool IrUsbTransceiver::readData(std::vector<uint8_t>&, unsigned int) { return false; }
+void IrUsbTransceiver::flushInputBuffer() {}
+bool IrUsbTransceiver::readPayload(std::vector<uint8_t>&, unsigned int) { return false; }
+std::string IrUsbTransceiver::getFirmwareVersion() { return "N/A (No libusb)"; }
+bool IrUsbTransceiver::setIdle() { return false; }
+bool IrUsbTransceiver::startReceive() { return false; }
+bool IrUsbTransceiver::startTransmit() { return false; }
+bool IrUsbTransceiver::transmitIr(const std::vector<int>&, uint8_t) { return false; }
+bool IrUsbTransceiver::transmitIr(const IrSignal&) { return false; }
+bool IrUsbTransceiver::captureOnce(IrSignal&, float) { return false; }
+void IrUsbTransceiver::startBackgroundPolling() {}
+void IrUsbTransceiver::stopBackgroundPolling() {}
+void IrUsbTransceiver::pollingLoop() {}
+void IrUsbTransceiver::discoverEndpoints() {}
+std::optional<IrSignal> IrUsbTransceiver::popReceivedSignal() { return std::nullopt; }
+void IrUsbTransceiver::setSignalReceivedCallback(SignalReceivedCallback cb) { m_onSignalReceived = std::move(cb); }
+void IrUsbTransceiver::setStateChangedCallback(StateChangedCallback cb) { m_onStateChanged = std::move(cb); }
+void IrUsbTransceiver::setLogCallback(LogCallback cb) { m_onLog = std::move(cb); }
+
+} // namespace ir
+
+#else
+
 #include <iostream>
 #include <chrono>
 #include <thread>
@@ -780,3 +839,5 @@ void IrUsbTransceiver::setLogCallback(LogCallback cb) {
 }
 
 } // namespace ir
+
+#endif // !(IR_HAS_LIBUSB == 0 || ANDROID)

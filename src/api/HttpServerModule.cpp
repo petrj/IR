@@ -273,8 +273,8 @@ void HttpServerModule::handlePostSend(const httplib::Request& req, httplib::Resp
         return;
     }
 
-    // 1. Transmit by saved signal name
-    if (j.contains("name") && j["name"].is_string()) {
+    // 1. Transmit by saved signal name (only when explicit pulses/codes are not provided)
+    if (j.contains("name") && j["name"].is_string() && !j.contains("pulses") && !j.contains("code") && !j.contains("command") && !j.contains("address")) {
         std::string name = j["name"].get<std::string>();
         if (!m_storage) {
             res.status = 400;
@@ -309,6 +309,35 @@ void HttpServerModule::handlePostSend(const httplib::Request& req, httplib::Resp
             }
         }
 
+        // Try reloading storage from disk in case it was updated externally
+        if (!found) {
+            m_storage->loadFromFile();
+            for (const auto& sig : m_storage->getSignals()) {
+                if (sig.name == name) {
+                    found = true;
+                    uint8_t freq = static_cast<uint8_t>(j.value("frequency", static_cast<int>(sig.frequency_khz)));
+                    bool ok = m_transceiver->transmitIr(sig.pulses, freq);
+                    if (ok) {
+                        res.status = 200;
+                        nlohmann::json out = {
+                            {"success", true},
+                            {"message", "Transmitted stored signal '" + name + "'"},
+                            {"name", name},
+                            {"protocol", sig.protocol},
+                            {"pulseCount", sig.pulses.size()},
+                            {"frequency", static_cast<int>(freq)}
+                        };
+                        res.set_content(out.dump(2), "application/json");
+                    } else {
+                        res.status = 500;
+                        nlohmann::json err = {{"success", false}, {"error", "Hardware failed to transmit signal"}};
+                        res.set_content(err.dump(2), "application/json");
+                    }
+                    return;
+                }
+            }
+        }
+
         if (!found) {
             res.status = 404;
             nlohmann::json err = {{"success", false}, {"error", "Stored signal not found: " + name}};
@@ -317,7 +346,7 @@ void HttpServerModule::handlePostSend(const httplib::Request& req, httplib::Resp
         }
     }
 
-    std::string protocol = j.value("protocol", "NEC");
+    std::string protocol = j.value("protocol", j.contains("pulses") ? "Raw" : "NEC");
     uint8_t frequency = static_cast<uint8_t>(j.value("frequency", 38));
 
     // 2. NEC Protocol transmission
@@ -362,15 +391,20 @@ void HttpServerModule::handlePostSend(const httplib::Request& req, httplib::Resp
             if (ok) {
                 std::ostringstream ss;
                 ss << "0x" << std::uppercase << std::hex << std::setw(8) << std::setfill('0') << rawValue;
+                std::string signalName = (j.contains("name") && j["name"].is_string()) ? j["name"].get<std::string>() : "";
                 res.status = 200;
                 nlohmann::json out = {
                     {"success", true},
-                    {"message", "NEC signal transmitted successfully"},
+                    {"message", signalName.empty() ? "NEC signal transmitted successfully"
+                                                   : "Transmitted signal '" + signalName + "'"},
                     {"protocol", "NEC"},
                     {"code", ss.str()},
                     {"pulseCount", pulses.size()},
                     {"frequency", static_cast<int>(frequency)}
                 };
+                if (!signalName.empty()) {
+                    out["name"] = signalName;
+                }
                 res.set_content(out.dump(2), "application/json");
             } else {
                 res.status = 500;
@@ -414,16 +448,21 @@ void HttpServerModule::handlePostSend(const httplib::Request& req, httplib::Resp
 
             bool ok = m_transceiver->transmitIr(pulses, frequency);
             if (ok) {
+                std::string signalName = (j.contains("name") && j["name"].is_string()) ? j["name"].get<std::string>() : "";
                 res.status = 200;
                 nlohmann::json out = {
                     {"success", true},
-                    {"message", "NEC signal transmitted successfully"},
+                    {"message", signalName.empty() ? "NEC signal transmitted successfully"
+                                                   : "Transmitted signal '" + signalName + "'"},
                     {"protocol", "NEC"},
                     {"address", addr},
                     {"command", cmd},
                     {"pulseCount", pulses.size()},
                     {"frequency", static_cast<int>(frequency)}
                 };
+                if (!signalName.empty()) {
+                    out["name"] = signalName;
+                }
                 res.set_content(out.dump(2), "application/json");
             } else {
                 res.status = 500;
@@ -458,14 +497,19 @@ void HttpServerModule::handlePostSend(const httplib::Request& req, httplib::Resp
 
         bool ok = m_transceiver->transmitIr(pulses, frequency);
         if (ok) {
+            std::string signalName = (j.contains("name") && j["name"].is_string()) ? j["name"].get<std::string>() : "";
             res.status = 200;
             nlohmann::json out = {
                 {"success", true},
-                {"message", "Raw IR signal transmitted successfully"},
+                {"message", signalName.empty() ? "Raw IR signal transmitted successfully"
+                                               : "Transmitted signal '" + signalName + "'"},
                 {"protocol", "Raw"},
                 {"pulseCount", pulses.size()},
                 {"frequency", static_cast<int>(frequency)}
             };
+            if (!signalName.empty()) {
+                out["name"] = signalName;
+            }
             res.set_content(out.dump(2), "application/json");
         } else {
             res.status = 500;

@@ -264,8 +264,9 @@ void AppController::onReplyFinished(QNetworkReply *reply)
     }
 
     const QString url = reply->url().toString();
-    if (url.contains("/api/v1/capture")) {
-        reply->deleteLater();
+    // Only process status replies in this global handler.
+    // Other endpoints (/api/v1/send, /api/v1/capture, etc.) attach their own reply finished handlers.
+    if (!url.contains("/api/v1/status")) {
         return;
     }
 
@@ -346,22 +347,18 @@ void AppController::onReplyFinished(QNetworkReply *reply)
                 emit deviceStateChanged();
             }
         } else {
-            if (!url.contains("/api/v1/capture")) {
-                m_serverRunning = true;
-                m_serverConnected = false;
-                m_status = "Server responded, but status data is invalid";
-                m_usbStatusDetails = "USB status unavailable\nServer responded, but status data is invalid.";
-                emit usbStatusDetailsChanged();
-            }
-        }
-    } else {
-        if (!url.contains("/api/v1/capture")) {
-            m_serverRunning = false;
+            m_serverRunning = true;
             m_serverConnected = false;
-            m_status = QString("Server offline: %1").arg(reply->errorString().isEmpty() ? "cannot reach API" : reply->errorString());
-            m_usbStatusDetails = QString("USB status unavailable\n%1").arg(m_status);
+            m_status = "Server responded, but status data is invalid";
+            m_usbStatusDetails = "USB status unavailable\nServer responded, but status data is invalid.";
             emit usbStatusDetailsChanged();
         }
+    } else {
+        m_serverRunning = false;
+        m_serverConnected = false;
+        m_status = QString("Server offline: %1").arg(reply->errorString().isEmpty() ? "cannot reach API" : reply->errorString());
+        m_usbStatusDetails = QString("USB status unavailable\n%1").arg(m_status);
+        emit usbStatusDetailsChanged();
     }
 
     reply->deleteLater();
@@ -374,9 +371,7 @@ void AppController::onReplyFinished(QNetworkReply *reply)
         emit serverRunningChanged();
     }
 
-    if (!url.contains("/api/v1/capture")) {
-        emit statusChanged();
-    }
+    emit statusChanged();
 
     // also ensure apiHost is up-to-date (apiUrl may have been changed externally)
     QUrl u(m_apiUrl);
@@ -775,11 +770,30 @@ void AppController::transmitSavedSignal(int index)
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
 
     QJsonObject body;
-    body["name"] = QString::fromStdString(signal.name);
+    body["frequency"] = static_cast<int>(signal.frequency_khz > 0 ? signal.frequency_khz : 38);
+
+    if (!signal.pulses.empty()) {
+        body["protocol"] = "Raw";
+        QJsonArray pulsesArray;
+        for (int p : signal.pulses) {
+            pulsesArray.append(p);
+        }
+        body["pulses"] = pulsesArray;
+    } else if (!signal.rawHex.empty() && signal.rawHex != "N/A") {
+        body["protocol"] = QString::fromStdString(signal.protocol.empty() ? "NEC" : signal.protocol);
+        body["code"] = QString::fromStdString(signal.rawHex);
+    } else {
+        body["name"] = QString::fromStdString(signal.name);
+    }
+
+    const QString signalName = QString::fromStdString(signal.name);
+    m_status = QString("Transmitting '%1'...").arg(signalName);
+    emit statusChanged();
+
     const QByteArray payload = QJsonDocument(body).toJson(QJsonDocument::Compact);
 
     QNetworkReply *reply = m_networkManager->post(request, payload);
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, signalName]() {
         reply->deleteLater();
         const QByteArray data = reply->readAll();
         if (reply->error() == QNetworkReply::NoError && !data.isEmpty()) {
@@ -788,14 +802,25 @@ void AppController::transmitSavedSignal(int index)
             if (parseError.error == QJsonParseError::NoError && document.isObject()) {
                 const QJsonObject object = document.object();
                 if (object.value("success").toBool(false)) {
-                    m_status = "Saved signal transmitted";
+                    m_status = QString("Transmitted '%1'").arg(signalName);
                     emit statusChanged();
                     return;
                 }
             }
         }
 
-        m_status = "Transmit failed";
+        QString errorDetail = reply->errorString();
+        if (!data.isEmpty()) {
+            QJsonParseError parseError;
+            const QJsonDocument document = QJsonDocument::fromJson(data, &parseError);
+            if (parseError.error == QJsonParseError::NoError && document.isObject()) {
+                const QString apiErr = document.object().value("error").toString();
+                if (!apiErr.isEmpty()) {
+                    errorDetail = apiErr;
+                }
+            }
+        }
+        m_status = QString("Transmit failed: %1").arg(errorDetail.isEmpty() ? "Unknown error" : errorDetail);
         emit statusChanged();
     });
 }
